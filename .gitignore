@@ -1,0 +1,12 @@
+# Dependencies and build output
+node_modules/
+dist/
+
+# Runtime data: generated maps and saved worlds
+backend/data/
+data/
+
+# Local binaries and editor/OS files
+backend/mapserver
+*.log
+.DS_Store
