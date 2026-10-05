@@ -5,6 +5,7 @@ import (
 	"math"
 	"math/rand/v2"
 	"slices"
+	"sync"
 )
 
 // The island is a volcanic island arc above a subduction zone, like Sumatra
@@ -139,10 +140,37 @@ func (g *GeoModel) VolcanoAt(x, y int) int {
 }
 
 // BuildGeoModel derives the geology of a map from its seed and size alone.
+// Models are cached and shared, so callers must treat them as read-only.
 func BuildGeoModel(m *Map) *GeoModel {
+	key := geoKey{uint64(m.Seed), m.Width, m.Height}
+	geoCache.mu.Lock()
+	g, ok := geoCache.models[key]
+	geoCache.mu.Unlock()
+	if ok {
+		return g
+	}
 	elev, moist := terrainFields(m.Width, m.Height, uint64(m.Seed))
-	return buildGeoModel(m.Width, m.Height, uint64(m.Seed), elev, moist)
+	g = buildGeoModel(m.Width, m.Height, uint64(m.Seed), elev, moist)
+	geoCache.mu.Lock()
+	if len(geoCache.models) >= geoCacheSize {
+		clear(geoCache.models) // a handful of maps at most; simplest is to start over
+	}
+	geoCache.models[key] = g
+	geoCache.mu.Unlock()
+	return g
 }
+
+type geoKey struct {
+	seed uint64
+	w, h int
+}
+
+const geoCacheSize = 16
+
+var geoCache = struct {
+	mu     sync.Mutex
+	models map[geoKey]*GeoModel
+}{models: map[geoKey]*GeoModel{}}
 
 func buildGeoModel(w, h int, seed uint64, elev, moist []float64) *GeoModel {
 	t := quantiles(elev, 0.20, 0.32, 0.37, 0.87, 0.94)

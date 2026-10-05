@@ -25,6 +25,15 @@ func main() {
 	staticDir := flag.String("static", "", "optional built frontend to serve, e.g. ../frontend/dist")
 	flag.Parse()
 
+	// A relative -data path depends on where the server is started from, which
+	// once created an empty world next to the frontend; say where it really is.
+	if !filepath.IsAbs(*dataDir) {
+		if abs, err := filepath.Abs(*dataDir); err == nil {
+			slog.Warn("relative -data path; worlds are stored relative to the working directory", "path", abs)
+			*dataDir = abs
+		}
+	}
+
 	st, err := store.Open(*dataDir)
 	if err != nil {
 		slog.Error("open store", "err", err)

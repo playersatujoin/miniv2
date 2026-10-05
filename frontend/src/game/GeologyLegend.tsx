@@ -25,7 +25,14 @@ export function useGeologyOverlay(): [boolean, (on: boolean) => void] {
 
 /** Legend for the geological map: the rock units and deposit models present on this map. */
 export function GeologyLegend({ geology }: { geology: MapGeology }) {
-  const [open, setOpen] = useState(true)
+  // Start folded on small screens, where the card would hide much of the map.
+  const [open, setOpen] = useState(() => {
+    try {
+      return window.matchMedia('(min-width: 900px)').matches
+    } catch {
+      return true
+    }
+  })
 
   const { rocks, models } = useMemo(() => {
     const rockIds = new Set(geology.rocks)

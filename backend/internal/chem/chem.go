@@ -91,6 +91,7 @@ type StructureKind struct {
 	Tier     int            `json:"tier"`               // station tier (1–7), 0 if not a station
 	Farm     bool           `json:"farm,omitempty"`     // produces food over time
 	Well     bool           `json:"well,omitempty"`     // creatures nearby can drink
+	Library  bool           `json:"library,omitempty"`  // stores written know-how that outlives its writers
 }
 
 type Recipe struct {

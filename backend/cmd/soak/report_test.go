@@ -15,8 +15,8 @@ func TestParseSeedsAndOff(t *testing.T) {
 			t.Errorf("%q should fail", bad)
 		}
 	}
-	opts, list, err := parseOff("crime, instincts")
-	if err != nil || !opts.NoCrime || !opts.NoInstincts || len(list) != 2 {
+	opts, list, err := parseOff("crime, instincts, learning")
+	if err != nil || !opts.NoCrime || !opts.NoInstincts || !opts.NoLearning || len(list) != 3 {
 		t.Fatalf("off: %+v %v %v", opts, list, err)
 	}
 	if _, _, err := parseOff("gravity"); err == nil {

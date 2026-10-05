@@ -158,10 +158,10 @@ func (s *Sim) byValue(st Stock) []chem.ItemID {
 	return ids
 }
 
-func (s *Sim) crimeEvent(text string, id int64) {
+func (s *Sim) crimeEvent(text string, id int64, violent bool) {
 	if s.time()-s.lastCrimeEvent >= crimeEventGap || s.crimes == 1 {
 		s.lastCrimeEvent = s.time()
-		s.event("crime", text, id)
+		s.addEvent("crime", text, id, violent)
 	}
 }
 
@@ -191,6 +191,7 @@ func (s *Sim) give(c *Creature) bool {
 	target.Inventory.add(item, c.Inventory.take(item, 1))
 	c.Deeds.Kindness++
 	s.kindness++
+	s.stats.current(s).Kindness++
 	c.Reputation = math.Min(1, c.Reputation+0.05)
 	s.flash(c, fxGive)
 	c.action = ActGive
@@ -242,10 +243,11 @@ func (s *Sim) steal(c *Creature) bool {
 	c.Inventory.add(id, n)
 	c.Deeds.Crimes++
 	s.crimes++
+	s.stats.current(s).Crimes++
 	c.Reputation = math.Max(-1, c.Reputation-0.1)
 	s.flash(c, fxSteal)
 	c.action = ActSteal
-	s.crimeEvent(fmt.Sprintf("%s mencuri %d %s %s", c.Name, n, s.cat.itemName(id), text), c.ID)
+	s.crimeEvent(fmt.Sprintf("%s mencuri %d %s %s", c.Name, n, s.cat.itemName(id), text), c.ID, false)
 	return true
 }
 
@@ -270,12 +272,13 @@ func (s *Sim) attack(c *Creature) bool {
 	if newAssault {
 		c.Deeds.Crimes++
 		s.crimes++
+		s.stats.current(s).Crimes++
 		c.Reputation = math.Max(-1, c.Reputation-0.15)
 	}
 	s.flash(c, fxAttack)
 	c.action = ActAttack
 	if target.Health > 0 {
-		s.crimeEvent(fmt.Sprintf("%s menyerang %s", c.Name, target.Name), c.ID)
+		s.crimeEvent(fmt.Sprintf("%s menyerang %s", c.Name, target.Name), c.ID, true)
 		return true
 	}
 	c.Deeds.Kills++

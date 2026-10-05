@@ -886,3 +886,32 @@ func TestDepositDump(t *testing.T) {
 	}
 	t.Log("\nP porfiri  E epitermal  S belerang kawah  K skarn  T granit timah  G pegmatit  O ofiolit  N laterit nikel  F laterit besi  B bauksit  C tembaga alam  c batu bara  l gamping  M Pb-Zn  V evaporit  U uranium  R karbonatit  n mangan  * plaser  , lempung  . pasir  : batu  = air tawar  ~ laut\n" + sb.String())
 }
+
+func TestMinedOutListsDugOutMinerals(t *testing.T) {
+	m := starterMap()
+	g := NewGeology(m)
+	if len(g.MinedOut()) != 0 {
+		t.Fatal("a fresh map has mined-out tiles")
+	}
+	var ore Deposit
+	for _, d := range g.Deposits() {
+		if !d.Surface && d.NeedsTool {
+			if it, _ := ItemByID(d.Item); it.Kind == kindMineral {
+				ore = d
+				break
+			}
+		}
+	}
+	if ore.Item == "" {
+		t.Fatal("no ore on the starter map")
+	}
+	g.Take(ore.X, ore.Y, ore.Item, ore.Amount)
+	out := g.MinedOut()
+	if len(out) != 1 || out[0] != [2]int{ore.X, ore.Y} {
+		t.Fatalf("mined out %v, want [%d %d]", out, ore.X, ore.Y)
+	}
+	g.Regrow(1000)
+	if len(g.MinedOut()) != 1 {
+		t.Fatal("a mine should not grow back")
+	}
+}

@@ -2,7 +2,7 @@
 
 Dokumen ini berisi rencana untuk membuat simulasi peradaban Miniv2 lebih realistis: apa yang akan ditambahkan, **kenapa** (dasar ilmiahnya), **bagaimana** (desain teknis di kode yang ada), dan **bagaimana kita tahu berhasil** (kriteria yang bisa diukur).
 
-Status: **Fase 0 selesai** (5 Oktober 2026; lihat [hasilnya](#hasil-fase-0-baseline-v0)). Berikutnya **Fase 1**. Keputusan sudah dijawab (lihat [Keputusan](#keputusan-sudah-dijawab)). Urutan fase lain bisa diubah, tapi perhatikan [dependensi](#urutan-dependensi-dan-milestone).
+Status: **Fase 0, 0.5, dan 1 selesai** (5 Oktober 2026; lihat [hasil Fase 0](#hasil-fase-0-baseline-v0) dan [hasil Fase 1](#hasil-fase-1)). Berikutnya disarankan **Fase 2**, karena batas populasi keras adalah penghambat utama yang muncul di kedua uji. Keputusan sudah dijawab (lihat [Keputusan](#keputusan-sudah-dijawab)). Urutan fase lain bisa diubah, tapi perhatikan [dependensi](#urutan-dependensi-dan-milestone).
 
 ---
 
@@ -159,6 +159,8 @@ Masalah yang sudah terlihat dari uji sebelumnya. Kecil-kecil, tapi sebaiknya dib
 | 7 | Angka kejahatan dan kebaikan sangat besar dan sulit dibaca | Tampilkan sebagai laju per tahun sim, bukan total |
 | 8 | Log peristiwa tidak bisa disaring | **Filter kekerasan** (sudah diputuskan): pengamat bisa menyembunyikan peristiwa pembunuhan, serangan, dan wabah; visual tetap abstrak tanpa darah |
 
+Status Fase 0.5: #1 ✓ (`/sim/mined`, bekas tambang di peta) · #2 ✓ (cache GeoModel: 78 → 33 ms) · #3 ✓ (simpanan v5, bobot float32: 3,7 → 2,6 MB walau data otak 3×) · #4 sebagian (era 1 naik ke 11/16 dengan belajar; lanjut di Fase 2–3) · #5 ✓ (legenda responsif) · #6 ✓ (peringatan `-data` relatif) · #7 ✓ (laju per tahun) · #8 ✓ (filter kekerasan).
+
 Ukuran: **S**.
 
 ---
@@ -226,6 +228,25 @@ Ukuran: **S**.
 Ukuran: **L**.
 
 ---
+
+### Hasil Fase 1
+
+Selesai: plastisitas otak (aturan tiga faktor, imbalan hanya dari tubuh), ukuran otak sebagai gen (8–64 neuron, dengan biaya energi), keahlian per orang (ambang 0,3), mengajar / belajar di rumah / mengamati, tulisan + `perpustakaan`, peristiwa "pengetahuan hilang", sakelar `-off learning|plasticity|culture`. Laporan A/B (16 dunia × 900 tahun per konfigurasi): `reports/fase1/comparison.md`.
+
+| Kriteria penerimaan | Hasil |
+| --- | --- |
+| Median keahlian naik seiring umur | ✓ 0,37 (0–14 th) → 0,45 (30–44 th), landai |
+| Peristiwa "pengetahuan hilang" terjadi | ✓ median 32 per dunia (contoh nyata: "Pengetahuan hilang: Api — pemegang terakhir, Fiyana, meninggal", lalu "ditemukan kembali") |
+| Zaman Kimia di ≥ 4/8 dunia dalam 30 generasi | ✗ 0/16 di **semua** konfigurasi, termasuk model lama. Penghambat utamanya batas populasi keras (Fase 2) dan rantai bahan laboratorium |
+| Ukuran otak dilaporkan per generasi | ✓ tetap sekitar 20 neuron; seleksi terlalu lemah untuk terlihat dalam 34 generasi |
+| Performa ≤ 1 core pada 20× | ✓ 0,61 ms/tick (≈ 24% satu core) |
+
+Temuan:
+- **Belajar membantu bertahan hidup:** era 1 bertahan 11/16 (vs 9/16 model lama), dan Zaman Logam tercapai di generasi 7 bila pengetahuan dibagi bebas (vs 11,5).
+- **Budaya per orang memperlambat teknologi:** hanya 7/16 dunia sampai Zaman Logam, vs 16/16 di model lama yang membagikan semua pengetahuan gratis. Ini realistis untuk populasi kecil (Henrich 2004).
+- **Angka pembunuhan turun** menjadi 103 per 100.000 (vs 239 model lama); belum dianalisis penyebabnya.
+
+Penyesuaian di luar rencana: plastisitas awal diturunkan (yang lebih tinggi merusak refleks bawaan), ditambah belajar dari keluarga di rumah (tanpa itu pengetahuan hampir tak menyebar), dan lupa diperlambat ke paruh waktu sekitar 170 tahun.
 
 ## Fase 2 — Ekologi: waktu, musim, tanaman, hewan, pertanian
 

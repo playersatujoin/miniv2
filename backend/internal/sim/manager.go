@@ -3,6 +3,7 @@ package sim
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"math/rand/v2"
 	"os"
@@ -81,7 +82,15 @@ func (m *Manager) load(mp *world.Map) *Sim {
 		if err == nil {
 			return s
 		}
-		slog.Warn("discarding unreadable world save", "map", mp.ID, "err", err)
+		// Keep the old world on disk instead of overwriting it.
+		backup := m.path(mp.ID) + fmt.Sprintf(".bak-%d", time.Now().Unix())
+		if rerr := os.Rename(m.path(mp.ID), backup); rerr != nil {
+			backup = ""
+		}
+		slog.Warn("world save can't be loaded; starting again from Adam and Hawa", "map", mp.ID, "err", err, "backup", backup)
+		s = New(mp, rand.Uint64())
+		s.event("milestone", "Dunia lama tersimpan dalam format lama dan sudah dicadangkan; dunia dimulai ulang dari Adam & Hawa.", 0)
+		return s
 	} else if !errors.Is(err, os.ErrNotExist) {
 		slog.Warn("reading world save", "map", mp.ID, "err", err)
 	}

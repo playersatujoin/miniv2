@@ -730,7 +730,7 @@ function drawSparks(ctx: Ctx, x: number, y: number, s: number, time: number) {
 
 /**
  * One small icon above the head, by priority: attacking, stealing, giving,
- * building, crafting, gathering, wants a mate, drinking, eating, resting.
+ * teaching, building, crafting, gathering, wants a mate, drinking, eating, resting.
  */
 function drawStatusIcon(ctx: Ctx, x: number, y: number, flags: number, time: number) {
   y += Math.sin(time * 4 + x) * 0.8
@@ -762,6 +762,34 @@ function drawStatusIcon(ctx: Ctx, x: number, y: number, flags: number, time: num
     ctx.fillRect(x - 3.5, y - 2.8, 7, 1.4)
     circle(ctx, x - 1.4, y - 3.6, 1.2, '#fff3a1')
     circle(ctx, x + 1.4, y - 3.6, 1.2, '#fff3a1')
+  } else if (flags & FLAG.teaching) {
+    // An open book, pages lifting gently.
+    const lift = Math.sin(time * 5) * 0.6
+    ctx.fillStyle = '#7a4f2c'
+    ctx.fillRect(x - 5, y + 2.4, 10, 1.4)
+    ctx.fillStyle = '#f4ecd8'
+    ctx.beginPath()
+    ctx.moveTo(x, y + 2.6)
+    ctx.lineTo(x - 4.8, y + 2 - lift)
+    ctx.lineTo(x - 4.8, y - 3 - lift)
+    ctx.lineTo(x, y - 2.2)
+    ctx.closePath()
+    ctx.moveTo(x, y + 2.6)
+    ctx.lineTo(x + 4.8, y + 2 - lift)
+    ctx.lineTo(x + 4.8, y - 3 - lift)
+    ctx.lineTo(x, y - 2.2)
+    ctx.closePath()
+    ctx.fill()
+    ctx.strokeStyle = '#9aa3ad'
+    ctx.lineWidth = 0.5
+    ctx.beginPath()
+    for (const dy of [-1.2, 0.4]) {
+      ctx.moveTo(x - 3.8, y + dy - lift * 0.5)
+      ctx.lineTo(x - 1, y + dy + 0.4)
+      ctx.moveTo(x + 1, y + dy + 0.4)
+      ctx.lineTo(x + 3.8, y + dy - lift * 0.5)
+    }
+    ctx.stroke()
   } else if (flags & FLAG.building) {
     // A hammer, swinging.
     ctx.save()
@@ -863,6 +891,7 @@ const STRUCTURE_NAMES: Record<string, string> = {
   lab_radiasi: 'Lab Radiasi',
   reaktor_nuklir: 'Reaktor Nuklir',
   akselerator: 'Akselerator Partikel',
+  perpustakaan: 'Perpustakaan',
 }
 
 export function structureName(kind: string) {
@@ -1215,6 +1244,49 @@ const paintAccelerator: Paint = (ctx, hue) => {
   pennant(ctx, CX + 8, BY - 44, hue)
 }
 
+/** A library of clay tablets: a colonnaded hall with shelves of tablets inside. */
+const paintLibrary: Paint = (ctx, hue) => {
+  ellipse(ctx, CX, BY - 3, 25, 6, SHADOW)
+  // Steps and floor.
+  ctx.fillStyle = '#b8ab92'
+  ctx.fillRect(CX - 23, BY - 6, 46, 4)
+  ctx.fillStyle = '#cdbfa5'
+  ctx.fillRect(CX - 21, BY - 9, 42, 3)
+  // Dark interior with shelves of tablets behind the columns.
+  ctx.fillStyle = '#4a3b2c'
+  ctx.fillRect(CX - 19, BY - 30, 38, 21)
+  for (let row = 0; row < 3; row++) {
+    const y = BY - 27 + row * 6
+    ctx.fillStyle = '#6b5640'
+    ctx.fillRect(CX - 18, y + 4, 36, 1)
+    for (let k = 0; k < 9; k++) {
+      ctx.fillStyle = (k + row) % 3 ? '#c99a62' : '#b0643c'
+      ctx.fillRect(CX - 17 + k * 4, y, 3, 4)
+    }
+  }
+  // Columns.
+  ctx.fillStyle = '#e4dccb'
+  for (const cx of [CX - 19, CX - 7, CX + 5, CX + 17]) {
+    ctx.fillRect(cx - 1.5, BY - 31, 3, 22)
+    ctx.fillRect(cx - 2.5, BY - 32, 5, 2)
+  }
+  // Pediment with an open-book emblem.
+  ctx.fillStyle = '#d6ccb6'
+  ctx.fillRect(CX - 23, BY - 35, 46, 4)
+  triangle(ctx, CX, BY - 49, 24, BY - 35, `hsl(${hue} 30% 62%)`)
+  ctx.fillStyle = '#f4ecd8'
+  ctx.beginPath()
+  ctx.moveTo(CX, BY - 39)
+  ctx.lineTo(CX - 5, BY - 40.5)
+  ctx.lineTo(CX - 5, BY - 44.5)
+  ctx.lineTo(CX, BY - 43)
+  ctx.lineTo(CX + 5, BY - 44.5)
+  ctx.lineTo(CX + 5, BY - 40.5)
+  ctx.closePath()
+  ctx.fill()
+  pennant(ctx, CX + 20, BY - 56, hue)
+}
+
 const paintGeneric: Paint = (ctx, hue) => {
   ellipse(ctx, CX, BY - 3, 20, 5.5, SHADOW)
   ctx.fillStyle = '#a89f91'
@@ -1236,6 +1308,7 @@ const PAINTERS: Record<string, Paint> = {
   lab_radiasi: paintRadiationLab,
   reaktor_nuklir: paintReactor,
   akselerator: paintAccelerator,
+  perpustakaan: paintLibrary,
 }
 
 /** Houses of unknown kinds are drawn by level. */
@@ -1487,6 +1560,21 @@ export function drawDeposit(
       return
     default:
       crystals(ctx, tx, ty, px, py, color, 4, 300)
+  }
+}
+
+/** An exhausted ground deposit: an old pit with spoil around its rim. */
+export function drawPit(ctx: Ctx, tx: number, ty: number, px: number, py: number) {
+  const cx = px + TILE / 2 + (hash(tx, ty, 470) - 0.5) * 4
+  const cy = py + TILE / 2 + (hash(tx, ty, 471) - 0.5) * 4
+  ellipse(ctx, cx, cy + 1, 11, 7.5, 'rgba(120,100,80,0.55)')
+  ellipse(ctx, cx, cy, 9, 6, '#3a2f25')
+  ellipse(ctx, cx + 1, cy + 1.5, 6, 3.6, '#221b15')
+  ctx.fillStyle = 'rgba(255,255,255,0.12)'
+  ctx.fillRect(cx - 7, cy - 4, 5, 1)
+  for (let i = 0; i < 5; i++) {
+    const a = hash(tx, ty, 480 + i) * Math.PI * 2
+    ellipse(ctx, cx + Math.cos(a) * 12, cy + Math.sin(a) * 8, 1.6, 1.1, i % 2 ? '#7d6a55' : '#9a8670')
   }
 }
 

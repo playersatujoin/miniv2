@@ -1205,3 +1205,112 @@
 .dm-sources p {
   margin: 0;
 }
+
+/* --- Fase 1: learning, skills, culture ------------------------------------ */
+
+.obs-dot-ring {
+  background: transparent;
+  border: 2px solid;
+  box-sizing: border-box;
+}
+
+.obs-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.obs-check input {
+  width: auto;
+  height: auto;
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+.obs-hidden-note {
+  margin: 0;
+  font-style: italic;
+}
+
+.obs-skills {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 7px;
+}
+
+.obs-skill-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.obs-skill-head em {
+  font-style: normal;
+  color: var(--muted);
+}
+
+.obs-skill-track {
+  position: relative;
+  height: 6px;
+  margin-top: 3px;
+  border-radius: 3px;
+  background: color-mix(in srgb, #3987e5 22%, transparent);
+}
+
+.obs-skill-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: 3px;
+  background: #3987e5;
+}
+
+/* The 0.3 practice threshold: below it a skill can't be put to work yet. */
+.obs-skill-threshold {
+  position: absolute;
+  top: -2px;
+  bottom: -2px;
+  width: 2px;
+  background: var(--text);
+  opacity: 0.7;
+}
+
+.civ-tech.is-lost {
+  opacity: 1;
+}
+
+.civ-tech.is-lost .civ-tech-mark {
+  color: var(--danger);
+}
+
+.civ-tag {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 0 6px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  font-size: 10px;
+  font-weight: 600;
+  vertical-align: 1px;
+}
+
+.civ-tag-lost {
+  color: var(--danger);
+  border-color: color-mix(in srgb, var(--danger) 55%, transparent);
+}
+
+.civ-tag-written {
+  color: #d9c7a3;
+  border-color: #6b5a3c;
+}
+
+.obs-swatch-ring {
+  background: transparent !important;
+  border: 2px solid;
+  border-radius: 50%;
+  box-sizing: border-box;
+}

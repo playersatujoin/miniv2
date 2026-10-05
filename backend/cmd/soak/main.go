@@ -44,6 +44,10 @@ type point struct {
 	Births         int      `json:"births"`
 	Deaths         int      `json:"deaths"`
 	MaxGeneration  int      `json:"maxGeneration"`
+	AvgGeneration  float64  `json:"avgGeneration"`
+	AvgBrainSize   float64  `json:"avgBrainSize"`
+	AvgSkill       float64  `json:"avgSkill"`
+	KnowledgeLost  int      `json:"knowledgeLost"`
 	Tier           int      `json:"tier"`
 	Elements       int      `json:"elements"`
 	Houses         int      `json:"houses"`
@@ -71,8 +75,15 @@ type final struct {
 	Kindness          int                   `json:"kindness"`
 	Kills             int                   `json:"kills"`
 	Demography        sim.DemographyMetrics `json:"demography"`
-	MsPerTick         float64               `json:"msPerTick"`
-	WallSeconds       float64               `json:"wallSeconds"`
+	// TierGeneration: the highest generation alive when each tier was first
+	// reached (tier → generation), to compare progress across time scales.
+	TierGeneration map[int]int    `json:"tierGeneration"`
+	KnowledgeLost  int            `json:"knowledgeLost"`
+	AvgBrainSize   float64        `json:"avgBrainSize"`
+	AvgSkill       float64        `json:"avgSkill"`
+	SkillByAge     []sim.AgeSkill `json:"skillByAge"`
+	MsPerTick      float64        `json:"msPerTick"`
+	WallSeconds    float64        `json:"wallSeconds"`
 }
 
 type run struct {
@@ -96,7 +107,7 @@ func main() {
 	size := flag.Int("size", 128, "map width and height")
 	mapSeed := flag.Uint("mapseed", 1337, "map generator seed")
 	parallel := flag.Int("parallel", max(1, runtime.NumCPU()/2), "worlds simulated at once")
-	off := flag.String("off", "", "rules to switch off: crime, instincts")
+	off := flag.String("off", "", "rules to switch off: crime, instincts, learning (= plasticity + culture)")
 	out := flag.String("out", "", "report directory (default <repo>/reports/<timestamp>)")
 	label := flag.String("label", "", "name of this run, shown in the report")
 	flag.Parse()
@@ -162,6 +173,7 @@ func simulate(cfg config, seed uint64, opts sim.Options) run {
 	r := run{Seed: seed}
 	era1 := -1
 	var firstHouse *int
+	tierGen := map[int]int{}
 	start := time.Now()
 	for minute := 1; minute <= cfg.Minutes; minute++ {
 		s.Advance(60 * sim.TicksPerSecond)
@@ -173,10 +185,20 @@ func simulate(cfg config, seed uint64, opts sim.Options) run {
 		if firstHouse == nil && info.Houses > 0 {
 			firstHouse = &minute
 		}
+		for t := 1; t <= info.Tier; t++ {
+			if _, ok := tierGen[t]; !ok {
+				tierGen[t] = info.MaxGeneration
+			}
+		}
+		var skill float64
+		if n := len(info.History); n > 0 {
+			skill = info.History[n-1].AvgSkill
+		}
 		r.Series = append(r.Series, point{
 			Minute: minute, Year: info.Year, Era: info.Era, Population: info.Population,
 			Females: info.Females, Males: info.Males, Births: info.Births, Deaths: info.Deaths,
-			MaxGeneration: info.MaxGeneration, Tier: info.Tier, Elements: info.ElementsDiscovered,
+			MaxGeneration: info.MaxGeneration, AvgGeneration: info.AvgGeneration, AvgBrainSize: info.AvgBrainSize,
+			AvgSkill: skill, KnowledgeLost: info.KnowledgeLost, Tier: info.Tier, Elements: info.ElementsDiscovered,
 			Houses: info.Houses, Crimes: info.Crimes, Kindness: info.Kindness, Kills: info.Kills,
 			LifeExpectancy: d.LifeExpectancy, SurvivalTo15: d.SurvivalTo15, TFR: d.TFR, Gini: d.Gini,
 		})
@@ -190,9 +212,14 @@ func simulate(cfg config, seed uint64, opts sim.Options) run {
 		Era1LastedMinutes: era1, FirstHouseMinute: firstHouse, Eras: info.Era, Population: info.Population,
 		MaxGeneration: info.MaxGeneration, Tier: info.Tier, TierName: info.TierName, Elements: info.ElementsDiscovered,
 		Houses: info.Houses, Structures: info.Structures, Crimes: info.Crimes, Kindness: info.Kindness, Kills: info.Kills,
-		Demography:  s.Demography().Current,
-		MsPerTick:   float64(wall.Microseconds()) / 1000 / float64(cfg.Minutes*60*sim.TicksPerSecond),
-		WallSeconds: wall.Seconds(),
+		Demography:     s.Demography().Current,
+		TierGeneration: tierGen,
+		KnowledgeLost:  info.KnowledgeLost,
+		AvgBrainSize:   info.AvgBrainSize,
+		SkillByAge:     s.SkillProfile(),
+		AvgSkill:       r.Series[len(r.Series)-1].AvgSkill,
+		MsPerTick:      float64(wall.Microseconds()) / 1000 / float64(cfg.Minutes*60*sim.TicksPerSecond),
+		WallSeconds:    wall.Seconds(),
 	}
 	return r
 }
@@ -236,8 +263,14 @@ func parseOff(spec string) (sim.Options, []string, error) {
 			opts.NoCrime = true
 		case "instincts":
 			opts.NoInstincts = true
+		case "learning":
+			opts.NoLearning = true
+		case "plasticity":
+			opts.NoPlasticity = true
+		case "culture":
+			opts.NoCulture = true
 		default:
-			return opts, nil, fmt.Errorf("unknown rule %q (known: crime, instincts)", name)
+			return opts, nil, fmt.Errorf("unknown rule %q (known: crime, instincts, learning, plasticity, culture)", name)
 		}
 		list = append(list, name)
 	}

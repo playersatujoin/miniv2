@@ -400,6 +400,8 @@ button:focus-visible,
   position: relative;
   flex: 1;
   min-width: 0;
+  /* Overlays (legend, HUD) adapt to the stage, not the window. */
+  container: stage / size;
 }
 
 .stage {
@@ -455,9 +457,16 @@ button:focus-visible,
   bottom: 12px;
   left: 50%;
   transform: translateX(-50%);
+  max-width: calc(100% - 24px);
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
   color: var(--text);
   font-variant-numeric: tabular-nums;
+}
+
+.hud-mined {
+  color: #d9b08c;
 }
 
 .hud em {
@@ -590,7 +599,8 @@ button:focus-visible,
   position: absolute;
   left: 12px;
   bottom: 52px;
-  width: 230px;
+  width: min(230px, calc(100% - 24px));
+  min-height: 30px;
   max-height: calc(100% - 140px);
   display: flex;
   flex-direction: column;
@@ -655,4 +665,11 @@ button:focus-visible,
 .geo-models small {
   color: var(--muted);
   font-size: 11px;
+}
+
+/* Narrow stage: keep the legend below the minimap (top-right) and above the HUD. */
+@container stage (max-width: 560px) {
+  .geo-legend {
+    max-height: max(30px, calc(100% - 52px - 214px));
+  }
 }

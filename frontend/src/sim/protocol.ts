@@ -13,6 +13,7 @@ export type Action =
   | 'give'
   | 'steal'
   | 'attack'
+  | 'teach'
 export type DeathCause = 'starvation' | 'thirst' | 'oldAge' | 'killed'
 
 /** Bit flags in CreatureFrame.flags. */
@@ -33,6 +34,8 @@ export const FLAG = {
   head: 4096,
   /** Carrying a lot (inventory at least half full). */
   carrying: 8192,
+  /** Teaching someone (or writing at a library) this second. */
+  teaching: 16384,
 } as const
 
 /** One creature in a stream frame. Positions are in tiles, heading in radians (0 = +x, π/2 = +y/down). */
@@ -150,6 +153,8 @@ export type SimEventKind =
   | 'crime'
   | 'kindness'
   | 'family'
+  /** Learned a skill from someone, wrote it down, or knowledge was lost. */
+  | 'learning'
 
 export type SimEvent = {
   id: number
@@ -158,6 +163,8 @@ export type SimEvent = {
   /** Human-readable Indonesian text, built by the backend. */
   text: string
   creatureId?: number
+  /** Assaults and killings, so observers can hide violence in the log. */
+  violent?: boolean
 }
 
 export type SimHistoryPoint = {
@@ -170,6 +177,10 @@ export type SimHistoryPoint = {
   /** Elements discovered so far. */
   elements: number
   houses: number
+  /** Mean number of hidden neurons among the living. */
+  avgBrainSize: number
+  /** Mean of each adult's best skill level, 0–1. */
+  avgSkill: number
 }
 
 export type SimInfo = {
@@ -204,6 +215,14 @@ export type SimInfo = {
   crimes: number
   kindness: number
   kills: number
+  /** Rates per simulated year over the last 50 years (easier to read than totals). */
+  crimesPerYear: number
+  kindnessPerYear: number
+  killsPerYear: number
+  /** Mean number of hidden neurons among the living (brain size evolves). */
+  avgBrainSize: number
+  /** How many times a skill died out with its last holder (all-time). */
+  knowledgeLost: number
   /** Sampled every 5 simulated seconds, oldest first, at most 720 points. */
   history: SimHistoryPoint[]
   /** Newest last, at most 80. */
@@ -224,8 +243,14 @@ export type Traits = {
 }
 
 export type Brain = {
-  inputLabels: string[] // 55
-  outputLabels: string[] // 12
+  inputLabels: string[] // grows with new senses, ~60
+  outputLabels: string[] // ~13 (adds "ajar")
+  /** Number of hidden neurons; inherited and evolving (≈ 8–64). */
+  size: number
+  /** Inherited learning rate (how fast experience changes this brain), 0 = none. */
+  learningRate: number
+  /** Per hidden neuron: how much its weights changed through lifetime learning, 0–1 (relative). */
+  learned: number[]
   input: number[] // current activations
   hidden: number[] // tanh
   output: number[] // turn is tanh (-1..1), the rest sigmoid (0..1)
@@ -249,6 +274,9 @@ export type HouseDetail = {
   storage: Stack[]
   capacity: number
 }
+
+/** A learned skill (practical know-how of one technology), 0–1; ≥ 0.3 can practise it. */
+export type Skill = { tech: string; name: string; level: number }
 
 export type Deeds = {
   kindness: number
@@ -285,6 +313,12 @@ export type CreatureDetail = {
   house: HouseDetail | null
   inventory: Stack[]
   deeds: Deeds
+  /** Skills it knows, strongest first. */
+  skills: Skill[]
+  /** Who it is currently learning from (teacher or library holder), if anyone. */
+  teacher: CreatureRef | null
+  /** How many different people it has taught (all-time). */
+  taught: number
   pregnant: boolean
   /** Pregnancy progress 0–1 (0 when not pregnant). */
   gestation: number
@@ -327,6 +361,12 @@ export type TechInfo = {
   known: boolean
   learnedAt?: number
   learnedBy?: CreatureRef
+  /** Living people who can practise it (skill ≥ 0.3). */
+  holders: number
+  /** It was known once but every holder died and nothing was written down. */
+  lost: boolean
+  /** Stored in at least one library, so it can be relearned by reading. */
+  written: boolean
 }
 
 export type StructureKindInfo = {
@@ -418,6 +458,9 @@ export type Demography = {
 export const SIM_SPEEDS = [0, 1, 2, 5, 10, 20] as const
 export type SimSpeed = (typeof SIM_SPEEDS)[number]
 
+/** Deposits that have been mined out, for drawing old pits on the map. */
+export type MinedOut = { version: number; tiles: [x: number, y: number][] }
+
 export const ACTION_LABELS: Record<Action, string> = {
   explore: 'Menjelajah',
   eat: 'Makan',
@@ -430,6 +473,7 @@ export const ACTION_LABELS: Record<Action, string> = {
   give: 'Berbagi',
   steal: 'Mencuri',
   attack: 'Menyerang',
+  teach: 'Mengajar',
 }
 
 export const DEATH_LABELS: Record<DeathCause, string> = {

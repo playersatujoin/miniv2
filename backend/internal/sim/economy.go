@@ -80,6 +80,8 @@ type Structure struct {
 	Hue       float64 `json:"hue"`
 	Storage   Stock   `json:"storage,omitempty"`
 	BuiltAt   float64 `json:"builtAt"`
+	// Libraries: how well each technology is written down here (0–1).
+	Written map[string]float64 `json:"written,omitempty"`
 
 	kind chem.StructureKind
 }
@@ -134,6 +136,7 @@ func (noGeology) Regrow(float64)                              {}
 func (noGeology) Update(*world.Map)                           {}
 func (noGeology) Amounts() []float32                          { return nil }
 func (noGeology) SetAmounts([]float32) error                  { return nil }
+func (noGeology) MinedOut() [][2]int                          { return nil }
 
 // --- knowledge --------------------------------------------------------------
 
@@ -159,21 +162,6 @@ func (s *Sim) discover(c *Creature, symbol, source string) {
 }
 
 const synthesisSource = "Sintesis"
-
-func (s *Sim) learn(c *Creature, tech string) {
-	if s.techKnown(tech) {
-		return
-	}
-	s.techs[tech] = &Discovery{Time: s.time(), By: Ref{c.ID, c.Name}, Era: s.era}
-	c.Deeds.Discoveries++
-	name := tech
-	for _, t := range s.cat.techs {
-		if t.ID == tech {
-			name = t.Name
-		}
-	}
-	s.event("discovery", fmt.Sprintf("Teknologi baru: %s — %s", name, c.Name), c.ID)
-}
 
 // --- what is worth gathering -------------------------------------------------
 
@@ -593,7 +581,7 @@ func (s *Sim) wants(c *Creature) map[chem.ItemID]float64 {
 				w[id] += 1
 				// One step back: inputs of recipes that make what is missing.
 				for _, r := range s.cat.recipes {
-					if r.Outputs[id] > 0 && s.techKnown(r.Tech) {
+					if r.Outputs[id] > 0 && s.canPractise(c, r.Tech) {
 						for in := range r.Inputs {
 							w[in] += 0.6
 						}
@@ -603,7 +591,7 @@ func (s *Sim) wants(c *Creature) map[chem.ItemID]float64 {
 		}
 	}
 	for _, r := range s.cat.recipes {
-		if r.Teaches != "" && !s.techKnown(r.Teaches) && s.techKnown(r.Tech) {
+		if s.novel(r.Teaches) && s.canPractise(c, r.Tech) {
 			for in := range r.Inputs {
 				w[in] += 1
 			}
@@ -613,7 +601,7 @@ func (s *Sim) wants(c *Creature) map[chem.ItemID]float64 {
 	if s.toolBonus(c) == 0 {
 		for _, r := range s.cat.recipes {
 			for out := range r.Outputs {
-				if s.cat.item(out).Gather > 0 && s.techKnown(r.Tech) && r.Station == "" {
+				if s.cat.item(out).Gather > 0 && s.canPractise(c, r.Tech) && r.Station == "" {
 					for in := range r.Inputs {
 						w[in] += 1
 					}
@@ -658,12 +646,13 @@ func (s *Sim) updateAbilities(c *Creature) {
 
 // --- crafting ----------------------------------------------------------------------
 
-// stationsNear lists station kinds within reach and the highest station tier.
-func (s *Sim) stationsNear(x, y float64) (map[string]bool, int) {
+// stationsFor lists the station kinds within c's reach that c knows how to
+// work, and the highest tier among them.
+func (s *Sim) stationsFor(c *Creature) (map[string]bool, int) {
 	kinds := map[string]bool{}
 	tier := 0
 	for _, st := range s.structures {
-		if st.kind.Tier > 0 && st.dist(x, y) <= stationReach {
+		if st.kind.Tier > 0 && st.dist(c.X, c.Y) <= stationReach && s.canPractise(c, stationTech(st.kind)) {
 			kinds[st.Kind] = true
 			tier = max(tier, st.kind.Tier)
 		}
@@ -681,7 +670,7 @@ func (s *Sim) recipeByID(id string) (chem.Recipe, bool) {
 }
 
 func (s *Sim) recipeReady(c *Creature, r chem.Recipe, stations map[string]bool) bool {
-	return s.techKnown(r.Tech) && (r.Station == "" || stations[r.Station]) && s.affordable(c, r.Inputs)
+	return s.canPractise(c, r.Tech) && (r.Station == "" || stations[r.Station]) && s.affordable(c, r.Inputs)
 }
 
 // heldItems lists items in hand and, at home, in storage.
@@ -702,7 +691,7 @@ func (s *Sim) heldItems(c *Creature) []chem.ItemID {
 // reveals an element, then recipes that teach or discover something, then
 // what the next building needs, then a missing tool or weapon.
 func (s *Sim) chooseCraft(c *Creature) *Job {
-	stations, tier := s.stationsNear(c.X, c.Y)
+	stations, tier := s.stationsFor(c)
 	if tier >= 1 && s.cat.discoverable != nil {
 		for _, id := range s.heldItems(c) {
 			if len(s.cat.discoverable(id, tier, s.known)) > 0 {
@@ -725,7 +714,7 @@ func (s *Sim) chooseCraft(c *Creature) *Job {
 			continue
 		}
 		score := 0.0
-		if r.Teaches != "" && !s.techKnown(r.Teaches) {
+		if s.novel(r.Teaches) {
 			score += 5
 		}
 		if slices.ContainsFunc(r.Discovers, func(sym string) bool { return !s.known(sym) }) {
@@ -781,14 +770,14 @@ func (s *Sim) startCraft(c *Creature) bool {
 func (s *Sim) finishJob(c *Creature, j *Job) {
 	switch j.Kind {
 	case "experiment":
-		_, tier := s.stationsNear(c.X, c.Y)
+		_, tier := s.stationsFor(c)
 		found := s.cat.discoverable(j.Item, tier, s.known)
 		if len(found) == 0 || !s.consume(c, map[chem.ItemID]int{j.Item: 1}) {
 			return
 		}
 		s.discover(c, found[0], s.cat.itemName(j.Item))
 	case "synthesis":
-		_, tier := s.stationsNear(c.X, c.Y)
+		_, tier := s.stationsFor(c)
 		made := s.cat.synthesizable(tier, s.known)
 		if len(made) == 0 || !s.consume(c, map[chem.ItemID]int{chem.SynthesisFuel: 1}) {
 			return
@@ -796,7 +785,7 @@ func (s *Sim) finishJob(c *Creature, j *Job) {
 		s.discover(c, made[0], synthesisSource)
 	case "craft":
 		r, ok := s.recipeByID(j.Recipe)
-		stations, _ := s.stationsNear(c.X, c.Y)
+		stations, _ := s.stationsFor(c)
 		if !ok || !s.recipeReady(c, r, stations) || !s.consume(c, r.Inputs) {
 			return
 		}
@@ -804,6 +793,7 @@ func (s *Sim) finishJob(c *Creature, j *Job) {
 			s.receive(c, id, r.Outputs[id])
 		}
 		c.Deeds.Crafted++
+		s.practise(c, r.Tech)
 		s.learn(c, r.Teaches)
 		for _, sym := range r.Discovers {
 			src := r.Name
@@ -860,20 +850,20 @@ func (s *Sim) structureNear(x, y, r float64, pred func(*Structure) bool) bool {
 }
 
 // firstHouse is the cheapest house that needs no existing home.
-func (s *Sim) firstHouse() (chem.StructureKind, bool) {
+func (s *Sim) firstHouse(c *Creature) (chem.StructureKind, bool) {
 	var best chem.StructureKind
 	found := false
 	for _, k := range s.cat.structures {
-		if k.House && k.Upgrades == "" && s.techKnown(k.Tech) && (!found || costUnits(k.Cost) < costUnits(best.Cost)) {
+		if k.House && k.Upgrades == "" && s.canPractise(c, k.Tech) && (!found || costUnits(k.Cost) < costUnits(best.Cost)) {
 			best, found = k, true
 		}
 	}
 	return best, found
 }
 
-func (s *Sim) upgradeFor(h *Structure) (chem.StructureKind, bool) {
+func (s *Sim) upgradeFor(c *Creature, h *Structure) (chem.StructureKind, bool) {
 	for _, k := range s.cat.structures {
-		if k.House && k.Upgrades == h.Kind && s.techKnown(k.Tech) {
+		if k.House && k.Upgrades == h.Kind && s.canPractise(c, k.Tech) {
 			return k, true
 		}
 	}
@@ -890,32 +880,44 @@ func (s *Sim) ownedHouse(c *Creature) *Structure {
 // buildGoal is the building the creature works towards, affordable or not.
 func (s *Sim) buildGoal(c *Creature) (chem.StructureKind, bool) {
 	if c.HouseID == 0 {
-		return s.firstHouse()
+		return s.firstHouse(c)
 	}
-	if k, ok := s.nextStation(); ok {
+	if k, ok := s.nextStation(c); ok {
 		return k, true
 	}
 	if h := s.ownedHouse(c); h != nil {
-		if k, ok := s.upgradeFor(h); ok {
+		if k, ok := s.upgradeFor(c, h); ok {
 			return k, true
 		}
 	}
 	if h := s.houseOf(c); h != nil {
 		for _, k := range s.cat.structures {
-			if (k.Farm || k.Well) && s.techKnown(k.Tech) && !s.amenityNear(h, k) {
+			if (k.Farm || k.Well) && s.canPractise(c, k.Tech) && !s.amenityNear(h, k) {
 				return k, true
 			}
+		}
+		if k, ok := s.libraryKind(); ok && s.canPractise(c, k.Tech) && s.libraryNear(c.X, c.Y, localStationRange) == nil {
+			return k, true
 		}
 	}
 	return chem.StructureKind{}, false
 }
 
-// nextStation is the lowest station tier the world doesn't have yet, if its tech is known.
-func (s *Sim) nextStation() (chem.StructureKind, bool) {
+func (s *Sim) libraryKind() (chem.StructureKind, bool) {
+	for _, k := range s.cat.structures {
+		if k.Library {
+			return k, true
+		}
+	}
+	return chem.StructureKind{}, false
+}
+
+// nextStation is the lowest station tier the world doesn't have yet, if c knows its tech.
+func (s *Sim) nextStation(c *Creature) (chem.StructureKind, bool) {
 	var best chem.StructureKind
 	found := false
 	for _, k := range s.cat.structures {
-		if k.Tier > s.tier && s.techKnown(k.Tech) && (!found || k.Tier < best.Tier) {
+		if k.Tier > s.tier && s.canPractise(c, k.Tech) && (!found || k.Tier < best.Tier) {
 			best, found = k, true
 		}
 	}
@@ -980,7 +982,7 @@ func (s *Sim) chooseBuild(c *Creature) *buildPlan {
 				return &buildPlan{claim: st}
 			}
 		}
-		if k, ok := s.firstHouse(); ok && s.canBuildWith(c, k.Cost) && s.canPlaceHouse(x, y) {
+		if k, ok := s.firstHouse(c); ok && s.canBuildWith(c, k.Cost) && s.canPlaceHouse(x, y) {
 			return &buildPlan{job: &Job{Kind: "build", Structure: k.ID, X: x, Y: y, Remaining: buildSeconds(k)}}
 		}
 		return nil
@@ -988,7 +990,7 @@ func (s *Sim) chooseBuild(c *Creature) *buildPlan {
 
 	home := s.houseOf(c)
 	if h := s.ownedHouse(c); h != nil && s.atHome(c) {
-		if k, ok := s.upgradeFor(h); ok && s.canBuildWith(c, k.Cost) {
+		if k, ok := s.upgradeFor(c, h); ok && s.canBuildWith(c, k.Cost) {
 			return &buildPlan{job: &Job{Kind: "upgrade", Structure: k.ID, Target: h.ID, X: h.X, Y: h.Y, Remaining: buildSeconds(k)}}
 		}
 	}
@@ -1007,7 +1009,7 @@ func (s *Sim) chooseBuild(c *Creature) *buildPlan {
 	var station *chem.StructureKind
 	for i := range s.cat.structures {
 		k := &s.cat.structures[i]
-		if k.Tier > s.tier && s.techKnown(k.Tech) && s.canBuildWith(c, k.Cost) && (station == nil || k.Tier > station.Tier) {
+		if k.Tier > s.tier && s.canPractise(c, k.Tech) && s.canBuildWith(c, k.Cost) && (station == nil || k.Tier > station.Tier) {
 			station = k
 		}
 	}
@@ -1016,14 +1018,19 @@ func (s *Sim) chooseBuild(c *Creature) *buildPlan {
 	}
 	if home != nil {
 		for _, k := range s.cat.structures {
-			if (k.Farm || k.Well) && s.techKnown(k.Tech) && s.canBuildWith(c, k.Cost) && !s.amenityNear(home, k) {
+			if (k.Farm || k.Well) && s.canPractise(c, k.Tech) && s.canBuildWith(c, k.Cost) && !s.amenityNear(home, k) {
 				return place(k)
 			}
+		}
+		// Somewhere to write things down, if there is none nearby.
+		if k, ok := s.libraryKind(); ok && s.canPractise(c, k.Tech) && s.canBuildWith(c, k.Cost) &&
+			s.libraryNear(c.X, c.Y, localStationRange) == nil {
+			return place(k)
 		}
 	}
 	// A family far from existing stations builds its own.
 	for _, k := range s.cat.structures {
-		if k.Tier > 0 && k.Tier <= s.tier && s.techKnown(k.Tech) && s.canBuildWith(c, k.Cost) &&
+		if k.Tier > 0 && k.Tier <= s.tier && s.canPractise(c, k.Tech) && s.canBuildWith(c, k.Cost) &&
 			!s.structureNear(c.X, c.Y, localStationRange, func(st *Structure) bool { return st.Kind == k.ID }) {
 			return place(k)
 		}
@@ -1048,9 +1055,10 @@ func (s *Sim) startBuild(c *Creature) bool {
 
 func (s *Sim) finishBuild(c *Creature, j *Job) {
 	k, ok := s.cat.structure[j.Structure]
-	if !ok || !s.techKnown(k.Tech) {
+	if !ok || !s.canPractise(c, k.Tech) {
 		return
 	}
+	s.practise(c, k.Tech)
 	if j.Kind == "upgrade" {
 		h := s.structByID[j.Target]
 		if h == nil || h.Owner != c.ID || !s.consumeFrom(s.funds(c, true), k.Cost) {
@@ -1059,7 +1067,7 @@ func (s *Sim) finishBuild(c *Creature, j *Job) {
 		h.Kind, h.kind = k.ID, k
 		s.structVersion++
 		c.Deeds.Built++
-		s.learn(c, k.Teaches)
+		s.learnAt(c, k.Teaches, buildSkill)
 		s.event("build", fmt.Sprintf("%s memperbaiki rumahnya menjadi %s", c.Name, k.Name), c.ID)
 		return
 	}
@@ -1072,7 +1080,7 @@ func (s *Sim) finishBuild(c *Creature, j *Job) {
 	}
 	st := s.addStructure(k, j.X, j.Y, c)
 	c.Deeds.Built++
-	s.learn(c, k.Teaches)
+	s.learnAt(c, k.Teaches, buildSkill)
 	if k.House {
 		s.moveIn(c, st)
 	}

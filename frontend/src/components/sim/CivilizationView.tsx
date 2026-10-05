@@ -1,6 +1,6 @@
 import type { Knowledge, SimInfo, StructureKindInfo, TechInfo } from '../../sim/protocol'
 import { Chips } from './Chips'
-import { formatClockShort, nf, useSecondsPerYear } from './format'
+import { formatClockShort, nf, nf1, useSecondsPerYear } from './format'
 
 type Props = {
   knowledge: Knowledge | undefined
@@ -22,7 +22,10 @@ export function CivilizationView({ knowledge, info, error, onSelect }: Props) {
   const stationFor = (t: number) => kinds.find((k) => k.tier === t && !k.house)
   const tierName = (t: number) => knowledge.tierNames?.[t] ?? `Tier ${t}`
   const techName = new Map(techs.map((t) => [t.id, t.name]))
-  const knownCount = techs.filter((t) => t.known).length
+  // Newer servers track living holders; then "known" means someone can practise it now.
+  const perPerson = techs.some((t) => t.holders != null)
+  const knownCount = techs.filter((t) => (perPerson ? (t.holders ?? 0) > 0 || t.written : t.known)).length
+  const lostCount = techs.filter((t) => t.lost).length
 
   return (
     <div className="civ">
@@ -58,10 +61,13 @@ export function CivilizationView({ knowledge, info, error, onSelect }: Props) {
             <Tile label="🏠 Rumah" value={info.houses} />
             <Tile label="🏗 Bangunan" value={info.structures} />
             <Tile label="⚗ Unsur" value={info.elementsDiscovered} suffix={` / ${info.elementsTotal ?? 118}`} />
-            <Tile label="🤝 Kebaikan" value={info.kindness} />
-            <Tile label="🗡 Kejahatan" value={info.crimes} />
-            <Tile label="☠ Pembunuhan" value={info.kills} />
+            <RateTile label="🤝 Kebaikan" rate={info.kindnessPerYear} total={info.kindness} />
+            <RateTile label="🗡 Kejahatan" rate={info.crimesPerYear} total={info.crimes} />
+            <RateTile label="☠ Pembunuhan" rate={info.killsPerYear} total={info.kills} />
+            {info.avgBrainSize != null && <Tile label="🧠 Otak rata-rata" value={info.avgBrainSize} suffix=" neuron" fraction />}
+            {info.knowledgeLost != null && <Tile label="📉 Ilmu hilang" value={info.knowledgeLost} suffix=" kali" />}
           </div>
+          {info.kindnessPerYear != null && <p className="small muted">Laju per tahun selama 50 tahun terakhir; total sepanjang masa di tooltip.</p>}
         </section>
       )}
 
@@ -70,6 +76,7 @@ export function CivilizationView({ knowledge, info, error, onSelect }: Props) {
           <h3 className="obs-title">Teknologi</h3>
           <span className="small muted">
             {nf.format(knownCount)} / {nf.format(techs.length)} dikuasai
+            {lostCount > 0 && <> · {nf.format(lostCount)} hilang</>}
           </span>
         </div>
         {techs.length === 0 ? (
@@ -94,20 +101,45 @@ export function CivilizationView({ knowledge, info, error, onSelect }: Props) {
       <section className="obs-section">
         <h3 className="obs-title">Bangunan</h3>
         <StructureGroup title="Rumah keluarga" kinds={kinds.filter((k) => k.house)} />
-        <StructureGroup title="Stasiun ilmu" kinds={kinds.filter((k) => !k.house && k.tier > 0)} />
-        <StructureGroup title="Lainnya" kinds={kinds.filter((k) => !k.house && !k.tier)} />
+        <StructureGroup title="Stasiun ilmu" kinds={kinds.filter((k) => !k.house && k.tier > 0 && !isLibrary(k))} />
+        <StructureGroup title="Tulisan & ilmu" kinds={kinds.filter((k) => !k.house && isLibrary(k))} />
+        <StructureGroup title="Lainnya" kinds={kinds.filter((k) => !k.house && !k.tier && !isLibrary(k))} />
       </section>
     </div>
   )
 }
 
-function Tile({ label, value, suffix = '' }: { label: string; value: number | undefined; suffix?: string }) {
+function Tile({
+  label,
+  value,
+  suffix = '',
+  fraction = false,
+}: {
+  label: string
+  value: number | undefined
+  suffix?: string
+  fraction?: boolean
+}) {
   return (
     <div className="obs-stat">
       <span className="obs-stat-label">{label}</span>
       <strong>
-        {value == null ? '—' : nf.format(value)}
+        {value == null ? '—' : (fraction ? nf1 : nf).format(value)}
         {value != null && suffix && <small className="muted">{suffix}</small>}
+      </strong>
+    </div>
+  )
+}
+
+/** A rate per simulated year when the server reports one; otherwise the all-time total. */
+function RateTile({ label, rate, total }: { label: string; rate: number | undefined; total: number | undefined }) {
+  if (rate == null) return <Tile label={label} value={total} />
+  return (
+    <div className="obs-stat" title={total != null ? `Total sepanjang masa: ${nf.format(total)}` : undefined}>
+      <span className="obs-stat-label">{label}</span>
+      <strong>
+        {nf1.format(rate)}
+        <small className="muted">/thn</small>
       </strong>
     </div>
   )
@@ -123,13 +155,32 @@ function TechRow({
   onSelect: (id: number) => void
 }) {
   const spy = useSecondsPerYear()
+  const tracked = tech.holders != null
+  const holders = tech.holders ?? 0
+  // Lost: discovered once, but nobody alive can practise it and nothing was written down.
+  const lost = !!tech.lost
+  const alive = tracked ? holders > 0 || !!tech.written : tech.known
+  const state = lost ? 'is-lost' : alive ? 'is-known' : ''
   return (
-    <li className={`civ-tech ${tech.known ? 'is-known' : ''}`} title={tech.description}>
+    <li className={`civ-tech ${state}`} title={tech.description}>
       <span className="civ-tech-mark" aria-hidden>
-        {tech.known ? '✓' : '○'}
+        {lost ? '✕' : alive ? '✓' : '○'}
       </span>
       <div className="civ-tech-body">
-        <strong>{tech.name}</strong>
+        <strong>
+          {tech.name}
+          {lost && <span className="civ-tag civ-tag-lost">hilang</span>}
+          {tech.written && <span className="civ-tag civ-tag-written">📜 tertulis</span>}
+        </strong>
+        {tracked && tech.known && (
+          <span className="small muted">
+            {holders > 0
+              ? `dikuasai ${nf.format(holders)} orang`
+              : tech.written
+                ? 'tak ada yang menguasai — bisa dipelajari lagi dari perpustakaan'
+                : 'tak ada lagi yang menguasainya'}
+          </span>
+        )}
         {tech.known ? (
           <span className="small muted">
             {tech.learnedBy ? (
@@ -155,6 +206,9 @@ function TechRow({
     </li>
   )
 }
+
+/** Libraries keep written skills alive after their holders die. */
+const isLibrary = (k: StructureKindInfo) => k.id === 'perpustakaan'
 
 function StructureGroup({ title, kinds }: { title: string; kinds: StructureKindInfo[] }) {
   if (kinds.length === 0) return null

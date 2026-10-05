@@ -11,7 +11,9 @@ import (
 	"miniv2/backend/internal/world"
 )
 
-const stateVersion = 4 // v4: deposit slots follow the realistic geology
+// v5: learning brains of any size, weights as compact float32 blobs, skills
+// and libraries. Older saves can't be read; the world starts over.
+const stateVersion = 5
 
 // state is the on-disk form of a Sim.
 type state struct {
@@ -44,7 +46,10 @@ type state struct {
 	Events        []Event               `json:"events"`
 	Archive       []archived            `json:"archive"`
 	Options       Options               `json:"options"`
-	Stats         *demography           `json:"stats,omitempty"` // absent in saves from before Fase 0
+	Stats         *demography           `json:"stats,omitempty"`
+	Lost          map[string]bool       `json:"lost,omitempty"`
+	LastHolder    map[string]Ref        `json:"lastHolder,omitempty"`
+	KnowledgeLost int                   `json:"knowledgeLost,omitempty"`
 }
 
 // MarshalState serialises the whole world, including every creature's genome
@@ -88,6 +93,9 @@ func (s *Sim) MarshalState() ([]byte, error) {
 		Archive:       s.archive,
 		Options:       s.opts,
 		Stats:         s.stats,
+		Lost:          s.lost,
+		LastHolder:    s.lastHolder,
+		KnowledgeLost: s.knowledgeLost,
 	})
 	if err != nil {
 		return nil, err
@@ -144,11 +152,20 @@ func restoreWith(m *world.Map, data []byte, cat *catalog) (*Sim, error) {
 		}
 	}
 	for _, c := range st.Creatures {
-		if c.Genome == nil || len(c.Genome.WIn) != NumInputs*NumHidden || len(c.Genome.WRec) != NumHidden*NumHidden ||
-			len(c.Genome.WOut) != NumHidden*NumOutputs || len(c.Genome.BOut) != NumOutputs {
-			return nil, fmt.Errorf("creature %d has a malformed genome", c.ID)
+		g := c.Genome
+		if g == nil || !g.valid() || len(c.Hidden) != g.Hidden || c.Mind == nil || !c.Mind.valid(g) {
+			return nil, fmt.Errorf("creature %d has a malformed brain", c.ID)
 		}
+		if p := c.Pregnancy; p != nil && (p.FatherGenome == nil || !p.FatherGenome.valid()) {
+			return nil, fmt.Errorf("creature %d carries a malformed genome", c.ID)
+		}
+		c.Mind.rebuild(g)
 		s.add(c)
+	}
+	for _, a := range st.Archive {
+		if a.Genome == nil || !a.Genome.valid() {
+			return nil, fmt.Errorf("archive holds a malformed genome")
+		}
 	}
 	for _, b := range st.Structures {
 		k, ok := cat.structure[b.Kind]
@@ -185,6 +202,13 @@ func restoreWith(m *world.Map, data []byte, cat *catalog) (*Sim, error) {
 	if st.Stats != nil {
 		s.stats = st.Stats
 	}
+	if st.Lost != nil {
+		s.lost = st.Lost
+	}
+	if st.LastHolder != nil {
+		s.lastHolder = st.LastHolder
+	}
+	s.knowledgeLost = st.KnowledgeLost
 	s.removeBlockedStructures()
 	s.applyFarms()
 	s.relocateStranded()
@@ -193,6 +217,7 @@ func restoreWith(m *world.Map, data []byte, cat *catalog) (*Sim, error) {
 	} else {
 		s.refreshResources()
 	}
+	s.recountHolders()
 	s.frames.publish(s.encodeFrame())
 	return s, nil
 }

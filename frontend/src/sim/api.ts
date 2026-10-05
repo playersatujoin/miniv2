@@ -1,6 +1,6 @@
 import { queryOptions, useMutation, useQueryClient } from '@tanstack/react-query'
 import { request } from '../api/client'
-import type { CreatureDetail, Demography, Knowledge, SimInfo, SimSpeed } from './protocol'
+import type { CreatureDetail, Demography, Knowledge, MinedOut, SimInfo, SimSpeed } from './protocol'
 
 export const simInfoQuery = (mapId: string) =>
   queryOptions({
@@ -32,6 +32,15 @@ export const demographyQuery = (mapId: string) =>
     queryKey: ['sim', mapId, 'demography'],
     queryFn: () => request<Demography>(`/maps/${mapId}/sim/demography`),
     refetchInterval: 3000,
+  })
+
+/** Mined-out deposits (old pits) of a living world. */
+export const minedOutQuery = (mapId: string) =>
+  queryOptions({
+    queryKey: ['sim', mapId, 'mined'],
+    queryFn: () => request<MinedOut>(`/maps/${mapId}/sim/mined`),
+    refetchInterval: 10_000,
+    retry: false,
   })
 
 export function useSetSimSpeed(mapId: string) {

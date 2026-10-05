@@ -24,10 +24,11 @@ const (
 	flagGathering = 2048
 	flagHead      = 4096
 	flagCarrying  = 8192
+	flagTeaching  = 16384
 )
 
 var fxFlags = [numFX]int{fxAttack: flagAttacking, fxSteal: flagStealing, fxGive: flagGiving,
-	fxBuild: flagBuilding, fxCraft: flagCrafting, fxGather: flagGathering}
+	fxBuild: flagBuilding, fxCraft: flagCrafting, fxGather: flagGathering, fxTeach: flagTeaching}
 
 type Info struct {
 	MapID              string         `json:"mapId"`
@@ -55,6 +56,11 @@ type Info struct {
 	Crimes             int            `json:"crimes"`
 	Kindness           int            `json:"kindness"`
 	Kills              int            `json:"kills"`
+	CrimesPerYear      float64        `json:"crimesPerYear"`
+	KindnessPerYear    float64        `json:"kindnessPerYear"`
+	KillsPerYear       float64        `json:"killsPerYear"`
+	AvgBrainSize       float64        `json:"avgBrainSize"`
+	KnowledgeLost      int            `json:"knowledgeLost"`
 	History            []HistoryPoint `json:"history"`
 	Events             []Event        `json:"events"`
 }
@@ -63,6 +69,7 @@ func (s *Sim) Info() Info {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	f, m, maxGen, avgGen := s.census()
+	crimes, kindness, kills := s.stats.deedRates()
 	return Info{
 		MapID:              s.mapID,
 		Tick:               s.tick,
@@ -89,6 +96,11 @@ func (s *Sim) Info() Info {
 		Crimes:             s.crimes,
 		Kindness:           s.kindness,
 		Kills:              s.kills,
+		CrimesPerYear:      crimes,
+		KindnessPerYear:    kindness,
+		KillsPerYear:       kills,
+		AvgBrainSize:       math.Round(s.avgBrainSize()*10) / 10,
+		KnowledgeLost:      s.knowledgeLost,
 		History:            append([]HistoryPoint{}, s.history...), // never null in JSON
 		Events:             append([]Event{}, s.events...),
 	}
@@ -106,6 +118,9 @@ type TraitsView struct {
 type BrainView struct {
 	InputLabels  []string    `json:"inputLabels"`
 	OutputLabels []string    `json:"outputLabels"`
+	Size         int         `json:"size"`
+	LearningRate float64     `json:"learningRate"`
+	Learned      []float64   `json:"learned"`
 	Input        []float64   `json:"input"`
 	Hidden       []float64   `json:"hidden"`
 	Output       []float64   `json:"output"`
@@ -155,6 +170,9 @@ type CreatureDetail struct {
 	House          *HouseView  `json:"house"`
 	Inventory      []StackView `json:"inventory"`
 	Deeds          Deeds       `json:"deeds"`
+	Skills         []SkillView `json:"skills"`
+	Teacher        *Ref        `json:"teacher"`
+	Taught         int         `json:"taught"`
 	Pregnant       bool        `json:"pregnant"`
 	Gestation      float64     `json:"gestation"`
 	Children       int         `json:"children"`
@@ -167,16 +185,16 @@ type CreatureDetail struct {
 
 func r3(v float64) float64 { return math.Round(v*1000) / 1000 }
 
-func round3(vs []float64) []float64 {
+func round3[T float32 | float64](vs []T) []float64 {
 	out := make([]float64, len(vs))
 	for i, v := range vs {
-		out[i] = r3(v)
+		out[i] = r3(float64(v))
 	}
 	return out
 }
 
 // matrix reshapes a flat row-major weight slice into rows of `cols`.
-func matrix(flat []float64, cols int) [][]float64 {
+func matrix(flat weights, cols int) [][]float64 {
 	rows := make([][]float64, len(flat)/cols)
 	for i := range rows {
 		rows[i] = round3(flat[i*cols : (i+1)*cols])
@@ -251,6 +269,11 @@ func (s *Sim) Creature(id int64) (CreatureDetail, bool) {
 	if action == "" {
 		action = ActExplore
 	}
+	var teacher *Ref
+	if c.Teacher != nil && s.tick <= c.TeacherUntil {
+		teacher = c.Teacher
+	}
+	H := g.Hidden
 	return CreatureDetail{
 		SecondsPerYear: SecondsPerYear,
 		ID:             c.ID,
@@ -272,6 +295,9 @@ func (s *Sim) Creature(id int64) (CreatureDetail, bool) {
 		House:          house,
 		Inventory:      s.stacks(c.Inventory),
 		Deeds:          c.Deeds,
+		Skills:         s.skillViews(c),
+		Teacher:        teacher,
+		Taught:         len(c.Students),
 		Pregnant:       c.Pregnancy != nil,
 		Gestation:      r3(progress),
 		Children:       c.Children,
@@ -289,12 +315,15 @@ func (s *Sim) Creature(id int64) (CreatureDetail, bool) {
 		Brain: BrainView{
 			InputLabels:  InputLabels,
 			OutputLabels: OutputLabels,
+			Size:         H,
+			LearningRate: r3(tr.LearningRate),
+			Learned:      learnedPerNeuron(c),
 			Input:        round3(c.input[:]),
-			Hidden:       round3(c.Hidden[:]),
+			Hidden:       round3(c.Hidden),
 			Output:       round3(c.output[:]),
-			WIn:          matrix(g.WIn, NumHidden),
-			WRec:         matrix(g.WRec, NumHidden),
-			WOut:         matrix(g.WOut, NumOutputs),
+			WIn:          matrix(c.Mind.wIn, H),
+			WRec:         matrix(g.WRec, H),
+			WOut:         matrix(c.Mind.wOut, NumOutputs),
 			BOut:         round3(g.BOut),
 		},
 	}, true
@@ -327,6 +356,9 @@ type TechView struct {
 	Known       bool     `json:"known"`
 	LearnedAt   *float64 `json:"learnedAt,omitempty"`
 	LearnedBy   *Ref     `json:"learnedBy,omitempty"`
+	Holders     int      `json:"holders"`
+	Lost        bool     `json:"lost"`
+	Written     bool     `json:"written"`
 }
 
 type StructureKindView struct {
@@ -381,6 +413,9 @@ func (s *Sim) Knowledge() Knowledge {
 			at, by := r3(d.Time), d.By
 			v.Known, v.LearnedAt, v.LearnedBy = true, &at, &by
 		}
+		v.Holders = s.holderCount(t.ID)
+		v.Lost = s.lost[t.ID] && !s.noCulture()
+		v.Written = s.writtenLevel(t.ID) >= skillPractise
 		k.Techs = append(k.Techs, v)
 	}
 	counts := map[string]int{}
@@ -515,4 +550,16 @@ func (s *Sim) StructureVersion() int64 {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.structVersion
+}
+
+// MinedOut lists tiles whose mineral deposit has been dug out, and a version
+// that changes whenever the list does.
+func (s *Sim) MinedOut() (version int, tiles [][2]int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	tiles = s.geo.MinedOut()
+	if tiles == nil {
+		tiles = [][2]int{}
+	}
+	return len(tiles), tiles
 }

@@ -62,6 +62,16 @@ func (s *Server) simDemography(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, sm.Demography())
 }
 
+// simMined lists dug-out mineral deposits (old pits) of a living world.
+func (s *Server) simMined(w http.ResponseWriter, r *http.Request) {
+	sm, ok := s.simFor(w, r)
+	if !ok {
+		return
+	}
+	version, tiles := sm.MinedOut()
+	writeJSON(w, http.StatusOK, map[string]any{"version": version, "tiles": tiles})
+}
+
 func (s *Server) simCreature(w http.ResponseWriter, r *http.Request) {
 	sm, ok := s.simFor(w, r)
 	if !ok {

@@ -192,7 +192,7 @@ func TestFoundersWithoutInstincts(t *testing.T) {
 
 	m := testMap(t, 48)
 	with, without := New(m, 5), NewWithOptions(m, 5, Options{NoInstincts: true})
-	reflex := func(s *Sim) float64 { return math.Abs(s.creatures[0].Genome.WOut[outEat]) }
+	reflex := func(s *Sim) float64 { return math.Abs(float64(s.creatures[0].Genome.WOut[outEat])) }
 	if reflex(with) < 2 || reflex(without) > 1 {
 		t.Fatalf("eating reflex %.2f with instincts, %.2f without", reflex(with), reflex(without))
 	}

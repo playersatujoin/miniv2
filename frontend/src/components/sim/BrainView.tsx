@@ -10,6 +10,7 @@ const C = {
   neutral: [61, 64, 72] as const, // diverging midpoint
   pos: [237, 161, 0] as const, // amber: positive / excitatory
   neg: [57, 135, 229] as const, // blue: negative / inhibitory
+  learned: [27, 175, 122] as const, // aqua ring: changed by lifetime learning (not a weight sign)
 }
 const FONT = '10px Inter, system-ui, sans-serif'
 const FONT_BOLD = '600 10px Inter, system-ui, sans-serif'
@@ -19,6 +20,7 @@ const TOP = 18 // column titles
 const GROUP_GAP = 14 // room for a group heading
 const ROW = 10
 const MAX_CELL = 8 // recurrent heatmap cell, shrunk to fit wide memories
+const MIN_CELL = 3
 const MAX_IN_EDGES = 60
 const MAX_OUT_EDGES = 30
 
@@ -91,12 +93,16 @@ function computeLayout(brain: Brain, width: number): Layout {
   const bottom = y - ROW / 2
   const span = bottom - top
 
-  const hidden = spread(brain.hidden.length, top + 8, bottom - 8).map((hy, i): Node => ({
+  // Brains evolve between ~8 and 64 hidden neurons; shrink the dots so they never overlap.
+  const nh = brain.hidden.length
+  const pitch = nh > 1 ? (bottom - top - 16) / (nh - 1) : 20
+  const rHid = clamp(pitch / 2 - 1, 2, 5.5)
+  const hidden = spread(nh, top + 8, bottom - 8).map((hy, i): Node => ({
     kind: 'hid',
     i,
     x: xHid,
     y: hy,
-    r: 5.5,
+    r: rHid,
   }))
   const outputs = spread(brain.output.length, top + span * 0.18, bottom - span * 0.18).map((oy, i): Node => ({
     kind: 'out',
@@ -107,7 +113,7 @@ function computeLayout(brain: Brain, width: number): Layout {
   }))
 
   const n = brain.wRec.length
-  const cell = Math.max(4, Math.min(MAX_CELL, Math.floor((width - 8) / Math.max(1, n))))
+  const cell = Math.max(MIN_CELL, Math.min(MAX_CELL, Math.floor((width - 8) / Math.max(1, n))))
   const heatY = y + 30
   return {
     width,
@@ -217,6 +223,21 @@ function draw(ctx: CanvasRenderingContext2D, brain: Brain, L: Layout, hoverKey: 
   })
 
   L.hidden.forEach((n, h) => node(n, hidden[h] ?? 0))
+  // Lifetime learning: a ring whose strength shows how much this neuron's weights moved.
+  if (brain.learned?.length) {
+    // Keep rings inside the gap between neighbours when the brain is large.
+    const gap = L.hidden.length > 1 ? (L.hidden[1].y - L.hidden[0].y) / 2 - L.hidden[0].r : 2.5
+    const off = clamp(gap, 1, 2.5)
+    L.hidden.forEach((n, h) => {
+      const t = clamp(brain.learned[h] ?? 0, 0, 1)
+      if (t < 0.05) return
+      ctx.strokeStyle = `rgba(${C.learned.join(',')},${0.35 + 0.65 * t})`
+      ctx.lineWidth = 1 + 1.5 * t
+      ctx.beginPath()
+      ctx.arc(n.x, n.y, n.r + off, 0, Math.PI * 2)
+      ctx.stroke()
+    })
+  }
 
   ctx.textAlign = 'left'
   L.outputs.forEach((n, o) => {
@@ -251,7 +272,12 @@ type Hover = { key: string; x: number; y: number; text: string }
 
 function describe(brain: Brain, kind: Kind, i: number) {
   if (kind === 'in') return `${brain.inputLabels[i]}: ${(brain.input[i] ?? 0).toFixed(2)}`
-  if (kind === 'hid') return `Neuron h${i + 1}: ${(brain.hidden[i] ?? 0).toFixed(2)}`
+  if (kind === 'hid') {
+    const learned = brain.learned?.[i]
+    return `Neuron h${i + 1}: ${(brain.hidden[i] ?? 0).toFixed(2)}${
+      learned != null ? ` · berubah karena belajar ${Math.round(learned * 100)}%` : ''
+    }`
+  }
   const v = brain.output[i] ?? 0
   return `${brain.outputLabels[i] ?? `o${i + 1}`}: ${v.toFixed(2)}${isActiveOutput(i, v) ? ' (aktif)' : ''}`
 }
@@ -343,6 +369,12 @@ export function BrainView({ brain }: { brain: Brain }) {
         <i className="obs-swatch-sm" style={{ background: diverging(1) }} /> positif
         <i className="obs-swatch-sm" style={{ background: diverging(0) }} /> nol
         <i className="obs-swatch-sm" style={{ background: diverging(-1) }} /> negatif
+        {brain.learned?.length ? (
+          <>
+            <i className="obs-swatch-sm obs-swatch-ring" style={{ borderColor: `rgb(${C.learned.join(',')})` }} /> berubah
+            karena belajar
+          </>
+        ) : null}
       </p>
     </div>
   )

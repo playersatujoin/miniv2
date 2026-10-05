@@ -10,6 +10,7 @@ var techs = []Tech{
 	{ID: "alat_batu", Name: "Alat Batu", Description: "Beliung dan tombak dari batu, kayu dan tali. Membuka penambangan bijih.", Tier: 0},
 	{ID: "tembikar", Name: "Tembikar", Description: "Membakar tanah liat menjadi bata.", Tier: 0, Requires: []string{"api"}},
 	{ID: "pertanian", Name: "Pertanian", Description: "Menanam ladang agar makanan tumbuh sendiri.", Tier: 0, Requires: []string{"alat_batu"}},
+	{ID: "tulisan", Name: "Tulisan", Description: "Menulis di lempeng tanah liat agar pengetahuan tidak hilang bersama pemiliknya.", Tier: 1, Requires: []string{"tembikar"}},
 	{ID: "peleburan", Name: "Peleburan", Description: "Tungku yang cukup panas untuk melebur bijih menjadi logam.", Tier: 1, Requires: []string{"tembikar"}},
 	{ID: "perunggu", Name: "Perunggu", Description: "Paduan tembaga dan timah yang lebih keras dari keduanya.", Tier: 1, Requires: []string{"peleburan"}},
 	{ID: "besi", Name: "Pengolahan Besi", Description: "Melebur hematit dengan arang menjadi besi.", Tier: 1, Requires: []string{"peleburan"}},
@@ -30,6 +31,8 @@ var structures = []StructureKind{
 	{ID: "rumah_bata", Name: "Rumah Bata", Cost: map[ItemID]int{"bata": 16, "kayu": 6, "kaca": 2}, Tech: "kaca", House: true, Level: 3, Upgrades: "rumah_kayu", Storage: 200},
 	{ID: "ladang", Name: "Ladang", Cost: map[ItemID]int{"serat": 4, "kayu": 2}, Tech: "alat_batu", Teaches: "pertanian", Farm: true},
 	{ID: "sumur", Name: "Sumur", Cost: map[ItemID]int{"batu": 8, "tali": 2}, Tech: "alat_batu", Well: true},
+	// Clay tablets: writing began with fired clay, long before paper.
+	{ID: "perpustakaan", Name: "Perpustakaan", Cost: map[ItemID]int{"bata": 8, "kayu": 4, "tanah_liat": 6}, Tech: "tembikar", Teaches: "tulisan", Library: true},
 	{ID: "tungku", Name: "Tungku", Cost: map[ItemID]int{"batu": 8, "tanah_liat": 4, "bata": 2}, Tech: "tembikar", Teaches: "peleburan", Tier: 1},
 	{ID: "laboratorium", Name: "Laboratorium", Cost: map[ItemID]int{"bata": 10, "kaca": 4, "besi": 4}, Tech: "kaca", Teaches: "kimia", Tier: 2},
 	{ID: "pembangkit_listrik", Name: "Pembangkit Listrik", Cost: map[ItemID]int{"tembaga": 10, "seng": 4, "besi": 6, "kaca": 2}, Tech: "kimia", Teaches: "listrik", Tier: 3},

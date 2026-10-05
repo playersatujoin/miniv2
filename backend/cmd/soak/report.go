@@ -54,7 +54,19 @@ var worldMetrics = []metric{
 	{"crimes", "Kejahatan", "", 0, func(f final) *float64 { return intNum(f.Crimes) }},
 	{"kindness", "Kebaikan", "", 0, func(f final) *float64 { return intNum(f.Kindness) }},
 	{"kills", "Pembunuhan", "", 0, func(f final) *float64 { return intNum(f.Kills) }},
+	{"knowledgeLost", "Pengetahuan hilang", "", 0, func(f final) *float64 { return intNum(f.KnowledgeLost) }},
+	{"avgBrainSize", "Rata-rata neuron tersembunyi", "", 1, func(f final) *float64 { return num(f.AvgBrainSize) }},
+	{"avgSkill", "Rata-rata keahlian terbaik orang dewasa", "", 2, func(f final) *float64 { return num(f.AvgSkill) }},
+	{"tier1Generation", "Generasi saat Zaman Logam", "", 0, func(f final) *float64 { return tierGen(f, 1) }},
+	{"tier2Generation", "Generasi saat Zaman Kimia", "", 0, func(f final) *float64 { return tierGen(f, 2) }},
 	{"msPerTick", "ms/tick", "", 2, func(f final) *float64 { return num(f.MsPerTick) }},
+}
+
+func tierGen(f final, tier int) *float64 {
+	if g, ok := f.TierGeneration[tier]; ok {
+		return intNum(g)
+	}
+	return nil
 }
 
 func median(vs []float64) *float64 {
@@ -203,7 +215,66 @@ func markdown(rep report) string {
 		fmt.Fprintf(&b, "| %s | %d | %s%% |\n", name, causes[i], fmtPtr(num(share), 0))
 	}
 	b.WriteString("\nCatatan: simulasi belum punya penyakit (Fase 3), sedangkan di masyarakat nyata penyakit menyebabkan lebih dari separuh kematian. Perbedaan ini temuan, bukan galat.\n")
+	culture(&b, rep)
 	return b.String()
+}
+
+// culture reports lifetime learning, skills and brain size (Fase 1).
+func culture(b *strings.Builder, rep report) {
+	b.WriteString("\n## Budaya dan otak\n\n")
+	b.WriteString("| Seed | Generasi saat Zaman Logam | Generasi saat Zaman Kimia | Zaman akhir | Pengetahuan hilang | Neuron (rata-rata) | Keahlian dewasa |\n")
+	b.WriteString("| ---: | ---: | ---: | ---: | ---: | ---: | ---: |\n")
+	for _, r := range rep.Runs {
+		f := r.Final
+		fmt.Fprintf(b, "| %d | %s | %s | %d | %d | %s | %s |\n", r.Seed, fmtPtr(tierGen(f, 1), 0), fmtPtr(tierGen(f, 2), 0),
+			f.Tier, f.KnowledgeLost, fmtPtr(num(f.AvgBrainSize), 1), fmtPtr(num(f.AvgSkill), 2))
+	}
+	md := rep.Median
+	fmt.Fprintf(b, "| **Median** | %s | %s | %s | %s | %s | %s |\n\n", fmtPtr(md["tier1Generation"], 0), fmtPtr(md["tier2Generation"], 0),
+		fmtPtr(md["tier"], 0), fmtPtr(md["knowledgeLost"], 0), fmtPtr(md["avgBrainSize"], 1), fmtPtr(md["avgSkill"], 2))
+	b.WriteString("Generasi dihitung sebagai generasi tertinggi yang hidup saat zaman itu pertama tercapai (– = tidak tercapai).\n\n")
+
+	// Median best skill by age band, as the median over worlds.
+	if len(rep.Runs) > 0 && len(rep.Runs[0].Final.SkillByAge) > 0 {
+		b.WriteString("### Keahlian menurut umur (median antar-dunia dari median keahlian terbaik)\n\n| Umur | Keahlian | Orang (total) |\n| --- | ---: | ---: |\n")
+		for i, band := range rep.Runs[0].Final.SkillByAge {
+			var vs []float64
+			people := 0
+			for _, r := range rep.Runs {
+				if i < len(r.Final.SkillByAge) {
+					a := r.Final.SkillByAge[i]
+					people += a.People
+					if a.Median != nil {
+						vs = append(vs, *a.Median)
+					}
+				}
+			}
+			fmt.Fprintf(b, "| %s | %s | %d |\n", band.Label, fmtPtr(median(vs), 2), people)
+		}
+		b.WriteString("\n")
+	}
+
+	// Brain size as generations pass, pooled over all worlds.
+	type bucket struct{ sum, n float64 }
+	buckets := map[int]*bucket{}
+	top := 0
+	for _, r := range rep.Runs {
+		for _, p := range r.Series {
+			k := int(p.AvgGeneration) / 10
+			if buckets[k] == nil {
+				buckets[k] = &bucket{}
+			}
+			buckets[k].sum += p.AvgBrainSize
+			buckets[k].n++
+			top = max(top, k)
+		}
+	}
+	b.WriteString("### Ukuran otak menurut generasi (rata-rata neuron tersembunyi, semua dunia)\n\n| Generasi rata-rata | Neuron |\n| --- | ---: |\n")
+	for k := 0; k <= top; k++ {
+		if bk := buckets[k]; bk != nil && bk.n > 0 {
+			fmt.Fprintf(b, "| %d–%d | %s |\n", k*10, k*10+9, fmtPtr(num(bk.sum/bk.n), 1))
+		}
+	}
 }
 
 // wilson is the 95 % Wilson score interval for k successes out of n.

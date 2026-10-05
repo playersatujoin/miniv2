@@ -1,16 +1,28 @@
 import { useMemo, useState, type KeyboardEvent, type PointerEvent } from 'react'
 import type { SimHistoryPoint } from '../../sim/protocol'
-import { formatClock, formatClockShort, useSecondsPerYear } from './format'
+import { formatClock, formatClockShort, nf, nf1, pct, useSecondsPerYear } from './format'
 import { useElementWidth } from './useElementWidth'
 
-type NumKey = 'population' | 'females' | 'males' | 'elements' | 'houses'
-type Metric = 'population' | 'elements' | 'houses'
+type NumKey = 'population' | 'females' | 'males' | 'elements' | 'houses' | 'avgBrainSize' | 'avgSkill'
+type Metric = 'population' | 'elements' | 'houses' | 'brain' | 'skill'
 type Series = { key: NumKey; label: string; color: string }
+type MetricConfig = {
+  tab: string
+  title: string
+  series: Series[]
+  drawOrder: NumKey[]
+  headline: NumKey
+  /** Lowest y-axis maximum, so small values don't fill the whole chart. */
+  floor: number
+  fmt: (v: number) => string
+}
+
+const whole = (v: number) => nf.format(Math.round(v))
 
 // Colours are slots from the dataviz palette validated on the panel surface
 // (#172234, dark): the population trio passes all-pairs; the single-series
 // metrics each use one validated slot. Each metric is its own chart with one axis.
-const METRICS: Record<Metric, { tab: string; title: string; series: Series[]; drawOrder: NumKey[]; headline: NumKey }> = {
+const METRICS: Record<Metric, MetricConfig> = {
   population: {
     tab: 'Populasi',
     title: 'Populasi dari waktu ke waktu',
@@ -22,6 +34,8 @@ const METRICS: Record<Metric, { tab: string; title: string; series: Series[]; dr
     // Draw the total last so it sits on top.
     drawOrder: ['females', 'males', 'population'],
     headline: 'population',
+    floor: 0, // the capacity line sets it
+    fmt: whole,
   },
   elements: {
     tab: 'Unsur',
@@ -29,6 +43,8 @@ const METRICS: Record<Metric, { tab: string; title: string; series: Series[]; dr
     series: [{ key: 'elements', label: 'Unsur', color: '#9085e9' }],
     drawOrder: ['elements'],
     headline: 'elements',
+    floor: 10,
+    fmt: whole,
   },
   houses: {
     tab: 'Rumah',
@@ -36,6 +52,26 @@ const METRICS: Record<Metric, { tab: string; title: string; series: Series[]; dr
     series: [{ key: 'houses', label: 'Rumah', color: '#199e70' }],
     drawOrder: ['houses'],
     headline: 'houses',
+    floor: 5,
+    fmt: whole,
+  },
+  brain: {
+    tab: 'Otak',
+    title: 'Rata-rata ukuran otak (neuron tersembunyi)',
+    series: [{ key: 'avgBrainSize', label: 'Neuron', color: '#d95926' }],
+    drawOrder: ['avgBrainSize'],
+    headline: 'avgBrainSize',
+    floor: 16,
+    fmt: (v) => nf1.format(v),
+  },
+  skill: {
+    tab: 'Keahlian',
+    title: 'Rata-rata keahlian terbaik orang dewasa',
+    series: [{ key: 'avgSkill', label: 'Keahlian', color: '#008300' }],
+    drawOrder: ['avgSkill'],
+    headline: 'avgSkill',
+    floor: 1,
+    fmt: pct,
   },
 }
 
@@ -67,9 +103,9 @@ export function PopulationChart({ history, capacity }: Props) {
   const spy = useSecondsPerYear()
   const ready = history.length >= 2 && width > 0
 
-  // Older worlds don't report elements/houses; only offer what the data has.
+  // Older worlds don't report every metric; only offer what the data has.
   const available = (Object.keys(METRICS) as Metric[]).filter(
-    (m) => m === 'population' || history.some((h) => typeof h[m] === 'number'),
+    (m) => m === 'population' || history.some((h) => typeof h[METRICS[m].headline] === 'number'),
   )
   const cfg = METRICS[available.includes(metric) ? metric : 'population']
   const colorOf = (key: NumKey) => cfg.series.find((s) => s.key === key)!.color
@@ -79,7 +115,7 @@ export function PopulationChart({ history, capacity }: Props) {
     const t0 = history[0].time
     const t1 = history[history.length - 1].time
     const peak = Math.max(...history.map((h) => val(h, cfg.headline)))
-    const floor = cfg.headline === 'population' ? capacity : cfg.headline === 'elements' ? 10 : 5
+    const floor = cfg.headline === 'population' ? capacity : cfg.floor
     const yMax = niceCeil(Math.max(floor, peak))
     const plotW = width - M.left - M.right
     const plotH = HEIGHT - M.top - M.bottom
@@ -165,7 +201,7 @@ export function PopulationChart({ history, capacity }: Props) {
         {!ready ? (
           <p className="obs-empty small muted">Grafik muncul setelah beberapa detik simulasi berjalan.</p>
         ) : showTable ? (
-          <HistoryTable history={history} series={cfg.series} spy={spy} />
+          <HistoryTable history={history} series={cfg.series} spy={spy} fmt={cfg.fmt} />
         ) : (
           geo && (
             <>
@@ -175,7 +211,7 @@ export function PopulationChart({ history, capacity }: Props) {
                 className="obs-chart-svg"
                 tabIndex={0}
                 role="img"
-                aria-label={`${cfg.title}: ${cfg.series.map((s) => `${s.label} ${val(last, s.key)}`).join(', ')}. Gunakan panah kiri/kanan untuk menelusuri.`}
+                aria-label={`${cfg.title}: ${cfg.series.map((s) => `${s.label} ${cfg.fmt(val(last, s.key))}`).join(', ')}. Gunakan panah kiri/kanan untuk menelusuri.`}
                 onPointerMove={onPointerMove}
                 onPointerLeave={() => setActive(null)}
                 onFocus={() => setActive(history.length - 1)}
@@ -194,7 +230,7 @@ export function PopulationChart({ history, capacity }: Props) {
                       shapeRendering="crispEdges"
                     />
                     <text x={M.left - 5} y={geo.y(v) + 3} textAnchor="end" className="obs-axis-text">
-                      {v}
+                      {cfg.fmt(v)}
                     </text>
                   </g>
                 ))}
@@ -274,7 +310,7 @@ export function PopulationChart({ history, capacity }: Props) {
                     ))}
                     {/* Label only the headline series; the sexes converge, so they use legend + tooltip. */}
                     <text x={geo.x(last.time) + 7} y={geo.y(val(last, cfg.headline)) + 4} fill={TEXT} className="obs-end-label">
-                      {val(last, cfg.headline)}
+                      {cfg.fmt(val(last, cfg.headline))}
                     </text>
                   </g>
                 )}
@@ -289,7 +325,7 @@ export function PopulationChart({ history, capacity }: Props) {
                   {cfg.series.map((s) => (
                     <div key={s.key} className="obs-tooltip-row">
                       <i className="obs-line-key" style={{ background: s.color }} />
-                      <strong>{val(point, s.key)}</strong>
+                      <strong>{cfg.fmt(val(point, s.key))}</strong>
                       <span>{s.label}</span>
                     </div>
                   ))}
@@ -310,7 +346,17 @@ export function PopulationChart({ history, capacity }: Props) {
   )
 }
 
-function HistoryTable({ history, series, spy }: { history: SimHistoryPoint[]; series: Series[]; spy: number }) {
+function HistoryTable({
+  history,
+  series,
+  spy,
+  fmt,
+}: {
+  history: SimHistoryPoint[]
+  series: Series[]
+  spy: number
+  fmt: (v: number) => string
+}) {
   const rows = history.slice(-12).reverse()
   return (
     <table className="obs-table">
@@ -327,7 +373,7 @@ function HistoryTable({ history, series, spy }: { history: SimHistoryPoint[]; se
           <tr key={h.time}>
             <td>{formatClockShort(h.time, spy)}</td>
             {series.map((s) => (
-              <td key={s.key}>{val(h, s.key)}</td>
+              <td key={s.key}>{fmt(val(h, s.key))}</td>
             ))}
           </tr>
         ))}

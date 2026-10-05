@@ -15,6 +15,7 @@ type geology interface {
 	Update(m *world.Map)
 	Amounts() []float32
 	SetAmounts(a []float32) error
+	MinedOut() [][2]int
 }
 
 // catalog indexes chem's static data for quick lookups. Tests swap in small

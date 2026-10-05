@@ -61,6 +61,7 @@ func (g *fakeGeo) Regrow(float64)             {}
 func (g *fakeGeo) Update(*world.Map)          {}
 func (g *fakeGeo) Amounts() []float32         { return nil }
 func (g *fakeGeo) SetAmounts([]float32) error { return nil }
+func (g *fakeGeo) MinedOut() [][2]int         { return nil }
 
 func fakeCatalog() *catalog {
 	type in = map[chem.ItemID]int
@@ -144,7 +145,7 @@ func fakeWorld(t *testing.T) (*Sim, *fakeGeo, int, int) {
 
 // person puts an adult with a blank brain at the centre of tile (x, y).
 func person(s *Sim, sex Sex, name string, x, y int) *Creature {
-	g := emptyGenome()
+	g := emptyGenome(initialHidden)
 	g.Traits = Traits{Hue: 120, Size: 1, MaxSpeed: 2, Vision: 5, Metabolism: 1, Lifespan: 500, MutationRate: 0.05}
 	return s.spawnAdult(g, sex, name, float64(x)+0.5, float64(y)+0.5)
 }
@@ -159,22 +160,24 @@ func lastEvent(s *Sim) string {
 // --- brain ------------------------------------------------------------------
 
 func TestBrainShapes(t *testing.T) {
-	if len(InputLabels) != NumInputs || NumInputs != 55 || NumHidden != 24 {
-		t.Fatalf("got %d input labels, NumInputs=%d, NumHidden=%d", len(InputLabels), NumInputs, NumHidden)
+	if len(InputLabels) != NumInputs || NumInputs != 60 {
+		t.Fatalf("got %d input labels, NumInputs=%d", len(InputLabels), NumInputs)
 	}
-	if len(OutputLabels) != NumOutputs || NumOutputs != 12 {
+	if len(OutputLabels) != NumOutputs || NumOutputs != 13 {
 		t.Fatalf("got %d output labels", len(OutputLabels))
 	}
 	checks := map[int]string{
 		inBias: "bias", inNoise: "acak (kehendak)", inFood + 2: "makanan 0°", inResource: "sumber daya -60°",
 		inEnergy: "energi", inHealth: "kesehatan", inCanBuild: "bisa membangun", inOtherHouseNear: "rumah orang lain dekat",
+		inTeacherNear: "guru dekat", inStudentNear: "murid dekat", inBestSkill: "keahlian tertinggi",
+		inReward: "imbalan terakhir", inLibraryNear: "perpustakaan dekat", inClock: "jam internal",
 	}
 	for i, want := range checks {
 		if InputLabels[i] != want {
 			t.Errorf("input %d = %q, want %q", i, InputLabels[i], want)
 		}
 	}
-	if OutputLabels[outGather] != "kumpulkan" || OutputLabels[outAttack] != "serang" {
+	if OutputLabels[outGather] != "kumpulkan" || OutputLabels[outAttack] != "serang" || OutputLabels[outTeach] != "ajar" {
 		t.Fatalf("outputs out of order: %v", OutputLabels)
 	}
 }
@@ -183,12 +186,12 @@ func TestThink(t *testing.T) {
 	rng := rand.New(rand.NewPCG(1, 2))
 	g := randomGenome(rng)
 	var in [NumInputs]float64
-	var hidden [NumHidden]float64
+	hidden := make([]float64, g.Hidden)
 	var out [NumOutputs]float64
 	for i := range in {
 		in[i] = rng.Float64()*2 - 1
 	}
-	g.think(&in, &hidden, &out)
+	g.think(&in, hidden, &out)
 	for h, v := range hidden {
 		if v < -1 || v > 1 {
 			t.Fatalf("hidden[%d]=%v outside tanh range", h, v)
@@ -204,17 +207,17 @@ func TestThink(t *testing.T) {
 	}
 
 	// The recurrent state makes the same input produce a different hidden state.
-	before := hidden
-	g.think(&in, &hidden, &out)
-	if before == hidden {
+	before := slices.Clone(hidden)
+	g.think(&in, hidden, &out)
+	if slices.Equal(before, hidden) {
 		t.Fatal("recurrent hidden state had no effect")
 	}
 
 	// The first humans start peaceful.
 	var calm [NumInputs]float64
 	calm[inBias] = 1
-	hidden = [NumHidden]float64{}
-	g.think(&calm, &hidden, &out)
+	clear(hidden)
+	g.think(&calm, hidden, &out)
 	if out[outAttack] > 0.5 || out[outSteal] > 0.5 {
 		t.Fatalf("a fresh brain wants to attack (%.2f) or steal (%.2f)", out[outAttack], out[outSteal])
 	}
@@ -226,11 +229,11 @@ func TestCrossoverAndMutation(t *testing.T) {
 	c := crossover(a, b, rng)
 
 	fromA, fromB := 0, 0
-	for h := range NumHidden {
-		col := func(g *Genome) []float64 {
-			var v []float64
+	for h := range c.Hidden {
+		col := func(g *Genome) []float32 {
+			var v []float32
 			for i := range NumInputs {
-				v = append(v, g.WIn[i*NumHidden+h])
+				v = append(v, g.WIn[i*g.Hidden+h])
 			}
 			return append(v, g.WOut[h*NumOutputs:(h+1)*NumOutputs]...)
 		}
@@ -249,8 +252,8 @@ func TestCrossoverAndMutation(t *testing.T) {
 
 	before := c.clone()
 	c.Traits.MutationRate = 0.2
-	c.mutate(rng)
-	if slices.Equal(before.WIn, c.WIn) {
+	c = c.mutate(rng)
+	if c.Hidden == before.Hidden && slices.Equal(before.WIn, c.WIn) {
 		t.Fatal("mutation changed no input weights")
 	}
 	for _, w := range c.WIn {
@@ -446,6 +449,10 @@ func TestSynthesisAtReactor(t *testing.T) {
 	c.Inventory = Stock{chem.SynthesisFuel: 1}
 	s.addStructure(s.cat.structure["reaktor"], x, y+1, c)
 	s.recomputeTier()
+	if j := s.chooseCraft(c); j != nil {
+		t.Fatalf("working a reactor needs its know-how, but chose %+v", j)
+	}
+	s.learn(c, "lebur")
 	j := s.chooseCraft(c)
 	if j == nil || j.Kind != "synthesis" {
 		t.Fatalf("expected synthesis, got %+v", j)
@@ -666,6 +673,11 @@ func TestPersistRoundTrip(t *testing.T) {
 	a.moveIn(c, a.addStructure(k, int(c.X), int(c.Y), c))
 	a.houseOf(c).Storage.add("batu", 2)
 	a.discover(c, "Au", "Bijih Emas")
+	c.Skills = map[string]float64{"api": 0.7, "tulisan": 0.4}
+	lib := a.addStructure(a.cat.structure["perpustakaan"], int(c.X)+2, int(c.Y), c)
+	lib.Written = map[string]float64{"api": 0.5}
+	a.lost["kaca"] = true
+	a.knowledgeLost = 1
 
 	data, err := a.MarshalState()
 	if err != nil {
@@ -686,9 +698,12 @@ func TestPersistRoundTrip(t *testing.T) {
 	if bc.Inventory["kayu"] != 3 || b.houseOf(bc) == nil || b.houseOf(bc).Storage["batu"] != 2 || !b.known("Au") {
 		t.Fatal("inventory, house or discovery lost in the save")
 	}
+	if bc.Skills["api"] != 0.7 || b.structByID[lib.ID].Written["api"] != 0.5 || !b.lost["kaca"] || b.knowledgeLost != 1 {
+		t.Fatal("skills, library or lost knowledge lost in the save")
+	}
 	for i := range a.creatures {
 		ca, cb := a.creatures[i], b.creatures[i]
-		if ca.Hidden != cb.Hidden || !slices.Equal(ca.Genome.WIn, cb.Genome.WIn) {
+		if !slices.Equal(ca.Hidden, cb.Hidden) || !slices.Equal(ca.Genome.WIn, cb.Genome.WIn) || !slices.Equal(ca.Mind.DIn, cb.Mind.DIn) {
 			t.Fatalf("creature %d brain differs after restore", ca.ID)
 		}
 	}

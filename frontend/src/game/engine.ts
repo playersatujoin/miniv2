@@ -9,7 +9,7 @@ import type {
   TileDef,
   TileSet,
 } from '../api/client'
-import { FLAG, SEX_SYMBOL, type Sex, type SimFrame, type StructureFrame } from '../sim/protocol'
+import { FLAG, SEX_SYMBOL, type MinedOut, type Sex, type SimFrame, type StructureFrame } from '../sim/protocol'
 import {
   FEATURE_ICONS,
   FLAT_OBJECTS,
@@ -27,6 +27,7 @@ import {
   drawFallbackObject,
   drawFarm,
   drawDeposit,
+  drawPit,
   drawFlat,
   drawGround,
   drawPlayer,
@@ -56,6 +57,8 @@ export type HoverInfo = {
   deposits: HoverDeposit[]
   /** Bedrock unit under the tile, once the map's geology is loaded. */
   rock?: RockType
+  /** The ground deposit here has been mined out (an old pit). */
+  minedOut?: boolean
 }
 
 export type EngineEvents = {
@@ -161,6 +164,9 @@ export class GameEngine {
   /** Resource deposits by tile index, baked into the ground chunks. */
   private deposits = new Map<number, (HoverDeposit & { surface: boolean })[]>()
   private geologyVersion = 0
+  /** Tile indices whose ground deposit has been mined out (watch mode). */
+  private minedOut = new Set<number>()
+  private minedVersion: number | null = null
   private rocks: ArrayLike<number> | null = null
   private rockTypes: RockType[] = []
   private features: GeoFeature[] = []
@@ -287,6 +293,26 @@ export class GameEngine {
     }
     this.geologyVersion++
     this.chunks.clear()
+  }
+
+  /**
+   * Marks mined-out ground deposits as old pits. Only the tiles that changed are
+   * repainted in cached chunks; null clears them (e.g. outside watch mode).
+   */
+  setMinedOut(mined: MinedOut | null | undefined) {
+    const version = mined?.version ?? null
+    if (version === this.minedVersion) return
+    this.minedVersion = version
+    const next = new Set<number>()
+    for (const [x, y] of mined?.tiles ?? []) {
+      if (this.inBounds(x, y)) next.add(y * this.width + x)
+    }
+    const changed: number[] = []
+    for (const i of next) if (!this.minedOut.has(i)) changed.push(i)
+    for (const i of this.minedOut) if (!next.has(i)) changed.push(i)
+    this.minedOut = next
+    for (const i of changed) this.repaintTile(i % this.width, Math.floor(i / this.width))
+    if (changed.length) this.geologyVersion++
   }
 
   /** Toggles the geological map: rock-unit colours over the land plus feature labels. */
@@ -765,11 +791,22 @@ export class GameEngine {
     drawGround(ctx, this.keyAt, tx, ty, px, py, ground?.color)
     const rock = this.rocks ? this.rockTypes[this.rocks[i]] : undefined
     if (rock && rock.id !== 0 && ground && ROCKY_GROUND.has(ground.key)) tintLithology(ctx, rock.color, px, py)
+    const mined = this.minedOut.has(i)
     for (const d of this.deposits.get(i) ?? []) {
+      if (mined && !d.surface) continue
       drawDeposit(ctx, d.item.id, d.item.elements, d.surface, tx, ty, px, py, d.model?.key)
     }
+    if (mined) drawPit(ctx, tx, ty, px, py)
     const obj = this.objectDefs[this.objects[i]]
     if (obj && FLAT_OBJECTS.has(obj.key)) drawFlat(ctx, obj.key, tx, ty, px, py)
+  }
+
+  /** Repaints one tile in its cached chunk, if that chunk is cached. */
+  private repaintTile(tx: number, ty: number) {
+    if (!this.inBounds(tx, ty)) return
+    const chunk = this.chunks.get(Math.floor(ty / CHUNK) * 1024 + Math.floor(tx / CHUNK))
+    if (!chunk) return
+    this.paintTile(chunk.canvas.getContext('2d')!, tx, ty, (tx % CHUNK) * TILE, (ty % CHUNK) * TILE)
   }
 
   /** Repaints a tile and its neighbours (shorelines and cliffs depend on neighbours). */
@@ -1174,6 +1211,7 @@ export class GameEngine {
             object: this.objectDefs[this.objects[i]],
             deposits: (this.deposits.get(i) ?? []).map(({ item, model }) => ({ item, model })),
             rock: this.rocks ? this.rockTypes[this.rocks[i]] : undefined,
+            minedOut: this.minedOut.has(i) || undefined,
           }
         : null,
     )

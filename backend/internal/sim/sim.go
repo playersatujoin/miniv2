@@ -42,7 +42,9 @@ const (
 	maxTurnRate      = math.Pi
 	slowWhileFeeding = 0.2
 
-	basalCost     = 0.006
+	// The brain is part of the basal cost (see brainCost): with the initial
+	// 20 hidden neurons the total is the same 0.006 as before brains had a price.
+	basalCost     = 0.0052
 	moveCost      = 0.003
 	visionCost    = 0.0004
 	pregnancyCost = 0.002
@@ -111,6 +113,7 @@ const (
 	ActGive    Action = "give"
 	ActSteal   Action = "steal"
 	ActAttack  Action = "attack"
+	ActTeach   Action = "teach"
 )
 
 type Ref struct {
@@ -142,40 +145,49 @@ const (
 	fxBuild
 	fxCraft
 	fxGather
+	fxTeach
 	numFX
 )
 
 type Creature struct {
-	ID         int64              `json:"id"`
-	Name       string             `json:"name"`
-	Sex        Sex                `json:"sex"`
-	Generation int                `json:"generation"`
-	Mother     *Ref               `json:"mother"`
-	Father     *Ref               `json:"father"`
-	Spouse     *Ref               `json:"spouse,omitempty"`
-	BornTick   int64              `json:"bornTick"`
-	X          float64            `json:"x"`
-	Y          float64            `json:"y"`
-	Heading    float64            `json:"heading"`
-	Energy     float64            `json:"energy"`
-	Hydration  float64            `json:"hydration"`
-	Health     float64            `json:"health"`
-	Reputation float64            `json:"reputation"`
-	Pregnancy  *Pregnancy         `json:"pregnancy,omitempty"`
-	Cooldown   float64            `json:"cooldown"`
-	Children   int                `json:"children"`
-	LastBirth  int64              `json:"lastBirth,omitempty"` // tick of her latest delivery
-	HouseID    int64              `json:"houseId,omitempty"`
-	Inventory  Stock              `json:"inventory,omitempty"`
-	Deeds      Deeds              `json:"deeds"`
-	Job        *Job               `json:"job,omitempty"`
-	Gathering  float64            `json:"gathering,omitempty"`   // progress towards the next gathered unit
-	ActCD      float64            `json:"actCooldown,omitempty"` // seconds until the next give/steal/attack
-	Hurt       float64            `json:"hurt,omitempty"`        // seconds the "diserang" sense stays lit
-	Offender   *Ref               `json:"offender,omitempty"`    // who last attacked or robbed them
-	Genome     *Genome            `json:"genome"`
-	Hidden     [NumHidden]float64 `json:"hidden"`
-	Bumped     bool               `json:"bumped,omitempty"` // fed back as an input next tick
+	ID         int64      `json:"id"`
+	Name       string     `json:"name"`
+	Sex        Sex        `json:"sex"`
+	Generation int        `json:"generation"`
+	Mother     *Ref       `json:"mother"`
+	Father     *Ref       `json:"father"`
+	Spouse     *Ref       `json:"spouse,omitempty"`
+	BornTick   int64      `json:"bornTick"`
+	X          float64    `json:"x"`
+	Y          float64    `json:"y"`
+	Heading    float64    `json:"heading"`
+	Energy     float64    `json:"energy"`
+	Hydration  float64    `json:"hydration"`
+	Health     float64    `json:"health"`
+	Reputation float64    `json:"reputation"`
+	Pregnancy  *Pregnancy `json:"pregnancy,omitempty"`
+	Cooldown   float64    `json:"cooldown"`
+	Children   int        `json:"children"`
+	LastBirth  int64      `json:"lastBirth,omitempty"` // tick of her latest delivery
+	HouseID    int64      `json:"houseId,omitempty"`
+	Inventory  Stock      `json:"inventory,omitempty"`
+	Deeds      Deeds      `json:"deeds"`
+	Job        *Job       `json:"job,omitempty"`
+	Gathering  float64    `json:"gathering,omitempty"`   // progress towards the next gathered unit
+	ActCD      float64    `json:"actCooldown,omitempty"` // seconds until the next give/steal/attack
+	Hurt       float64    `json:"hurt,omitempty"`        // seconds the "diserang" sense stays lit
+	Offender   *Ref       `json:"offender,omitempty"`    // who last attacked or robbed them
+	Genome     *Genome    `json:"genome"`
+	Mind       *Mind      `json:"mind"`
+	Hidden     []float64  `json:"hidden"`
+	Bumped     bool       `json:"bumped,omitempty"` // fed back as an input next tick
+
+	// Culture: what this creature knows how to do, who is teaching it now,
+	// and whom it has taught.
+	Skills       map[string]float64 `json:"skills,omitempty"`
+	Teacher      *Ref               `json:"teacher,omitempty"`
+	TeacherUntil int64              `json:"teacherUntil,omitempty"`
+	Students     []int64            `json:"students,omitempty"`
 
 	// Cached decisions, saved so a restored world resumes exactly.
 	CanCraft   bool                    `json:"canCraft,omitempty"`
@@ -214,6 +226,8 @@ type HistoryPoint struct {
 	MaxGeneration int     `json:"maxGeneration"`
 	Elements      int     `json:"elements"`
 	Houses        int     `json:"houses"`
+	AvgBrainSize  float64 `json:"avgBrainSize"`
+	AvgSkill      float64 `json:"avgSkill"`
 }
 
 type Event struct {
@@ -222,6 +236,7 @@ type Event struct {
 	Kind       string  `json:"kind"`
 	Text       string  `json:"text"`
 	CreatureID int64   `json:"creatureId,omitempty"`
+	Violent    bool    `json:"violent,omitempty"` // assaults and killings, for the log filter
 }
 
 // Discovery records when and by whom an element or technology became known.
@@ -271,6 +286,15 @@ type Sim struct {
 	elements map[string]*Discovery
 	techs    map[string]*Discovery
 
+	// Culture: who can practise what (recounted every second), techs whose
+	// last holder is gone, and who held them last.
+	holders        map[string]int
+	lost           map[string]bool
+	lastHolder     map[string]Ref
+	knowledgeLost  int
+	lastLearnEvent float64
+	learnedVia     map[string]int // how people became able to practise something, all-time
+
 	births         int
 	deaths         int
 	deathsBy       deathCounts
@@ -300,7 +324,18 @@ type Options struct {
 	NoCrime bool `json:"noCrime,omitempty"`
 	// NoInstincts gives the first couple random brains without inborn reflexes.
 	NoInstincts bool `json:"noInstincts,omitempty"`
+	// NoLearning is the world before Fase 1: brains don't change during a
+	// life, and whatever anyone ever discovered, everybody can do.
+	NoLearning bool `json:"noLearning,omitempty"`
+	// NoPlasticity and NoCulture switch off one half of NoLearning each, to
+	// tell their effects apart.
+	NoPlasticity bool `json:"noPlasticity,omitempty"`
+	NoCulture    bool `json:"noCulture,omitempty"`
 }
+
+func (s *Sim) noPlasticity() bool { return s.opts.NoLearning || s.opts.NoPlasticity }
+
+func (s *Sim) noCulture() bool { return s.opts.NoLearning || s.opts.NoCulture }
 
 func newSim(m *world.Map, seed uint64) *Sim {
 	return newSimWith(m, seed, defaultCatalog())
@@ -320,7 +355,12 @@ func newSimWith(m *world.Map, seed uint64, cat *catalog) *Sim {
 		structByID:   map[int64]*Structure{},
 		elements:     map[string]*Discovery{},
 		techs:        map[string]*Discovery{},
+		holders:      map[string]int{},
+		lost:         map[string]bool{},
+		lastHolder:   map[string]Ref{},
 		stats:        newDemography(),
+		// The first learning in a world is always reported.
+		lastLearnEvent: -learnEventGap,
 	}
 	s.setTerrain(newTerrain(m))
 	if cat.newGeology != nil {
@@ -399,6 +439,7 @@ func (s *Sim) spawnAdult(g *Genome, sex Sex, name string, x, y float64) *Creatur
 		Health:    1,
 		Genome:    g,
 	}
+	s.giveBrain(c)
 	s.nextID++
 	s.add(c)
 	return c
@@ -472,6 +513,7 @@ func (s *Sim) step() {
 	s.reap()
 	if s.tick%TicksPerSecond == 0 {
 		s.stats.expose(s)
+		s.cultureTick()
 	}
 	if len(s.creatures) == 0 {
 		s.event("milestone", fmt.Sprintf("Manusia punah di era %d. Adam & Hawa baru memulai era %d.", s.era, s.era+1), 0)
@@ -588,8 +630,7 @@ func (s *Sim) gestate() {
 }
 
 func (s *Sim) newChild(mother *Creature, p *Pregnancy) *Creature {
-	g := crossover(mother.Genome, p.FatherGenome, s.rng)
-	g.mutate(s.rng)
+	g := crossover(mother.Genome, p.FatherGenome, s.rng).mutate(s.rng)
 	sex := Sex(s.rng.IntN(2))
 	x, y := mother.X, mother.Y
 	if nx, ny := x+s.rng.Float64()*0.6-0.3, y+s.rng.Float64()*0.6-0.3; !s.terrain.blockedAt(nx, ny) {
@@ -611,6 +652,7 @@ func (s *Sim) newChild(mother *Creature, p *Pregnancy) *Creature {
 		Health:     1,
 		Genome:     g,
 	}
+	s.giveBrain(c)
 	// Children grow up in their mother's home, else their father's.
 	c.HouseID = mother.HouseID
 	if father := s.byID[p.Father.ID]; c.HouseID == 0 && father != nil {
@@ -673,7 +715,7 @@ func (s *Sim) die(c *Creature, cause string) {
 		s.deathsBy.OldAge++
 		how = "meninggal karena usia tua"
 	}
-	s.event("death", fmt.Sprintf("%s %s %s pada usia %s", c.Name, c.Sex.symbol(), how, fmtAge(age)), c.ID)
+	s.addEvent("death", fmt.Sprintf("%s %s %s pada usia %s", c.Name, c.Sex.symbol(), how, fmtAge(age)), c.ID, cause == "killed")
 	s.leaveBelongings(c)
 	s.inherit(c)
 	d := c.Deeds
@@ -762,14 +804,14 @@ func (s *Sim) foundingGenome() *Genome {
 			best = a
 		}
 	}
-	g := best.Genome.clone()
-	g.mutate(s.rng)
-	return g
+	return best.Genome.clone().mutate(s.rng)
 }
 
-func (s *Sim) event(kind, text string, creatureID int64) {
+func (s *Sim) event(kind, text string, creatureID int64) { s.addEvent(kind, text, creatureID, false) }
+
+func (s *Sim) addEvent(kind, text string, creatureID int64, violent bool) {
 	s.nextEvent++
-	s.events = append(s.events, Event{ID: s.nextEvent, Time: s.time(), Kind: kind, Text: text, CreatureID: creatureID})
+	s.events = append(s.events, Event{ID: s.nextEvent, Time: s.time(), Kind: kind, Text: text, CreatureID: creatureID, Violent: violent})
 	if n := len(s.events) - eventsMax; n > 0 {
 		s.events = slices.Delete(s.events, 0, n)
 	}
@@ -803,6 +845,8 @@ func (s *Sim) sample() {
 		MaxGeneration: maxGen,
 		Elements:      len(s.elements),
 		Houses:        s.houseCount(),
+		AvgBrainSize:  math.Round(s.avgBrainSize()*10) / 10,
+		AvgSkill:      math.Round(s.avgSkill()*1000) / 1000,
 	})
 	if n := len(s.history) - historyMax; n > 0 {
 		s.history = slices.Delete(s.history, 0, n)
@@ -885,4 +929,37 @@ func (s *Sim) Frame() ([]byte, <-chan struct{}) {
 		b.next = make(chan struct{})
 	}
 	return b.frame, b.next
+}
+
+// giveBrain sets up a newborn's working brain: empty memory and nothing learned yet.
+func (s *Sim) giveBrain(c *Creature) {
+	c.Hidden = make([]float64, c.Genome.Hidden)
+	c.Mind = newMind(c.Genome)
+	c.Mind.Wellbeing = wellbeing(c)
+}
+
+func (s *Sim) avgBrainSize() float64 {
+	if len(s.creatures) == 0 {
+		return 0
+	}
+	sum := 0
+	for _, c := range s.creatures {
+		sum += c.Genome.Hidden
+	}
+	return float64(sum) / float64(len(s.creatures))
+}
+
+// avgSkill is the mean of each adult's best skill.
+func (s *Sim) avgSkill() float64 {
+	n, sum := 0, 0.0
+	for _, c := range s.creatures {
+		if s.adult(c) {
+			n++
+			sum += s.bestSkill(c)
+		}
+	}
+	if n == 0 {
+		return 0
+	}
+	return sum / float64(n)
 }

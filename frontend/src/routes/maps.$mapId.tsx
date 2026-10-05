@@ -8,6 +8,7 @@ import { ObserverPanel } from '../components/sim/ObserverPanel'
 import { GameCanvas } from '../game/GameCanvas'
 import { GeologyLegend, useGeologyOverlay } from '../game/GeologyLegend'
 import type { Brush, EngineEvents, GameEngine, HoverInfo, Mode, Tool } from '../game/engine'
+import { minedOutQuery } from '../sim/api'
 import { useSimStream, type StreamStatus } from '../sim/stream'
 
 type MapSearch = {
@@ -59,6 +60,8 @@ function MapEditor({ map, tiles, mode, selectedId }: EditorProps) {
   const geology = useQuery(geologyQuery(map.id, map.updatedAt))
   const [showGeology, setShowGeology] = useGeologyOverlay()
   const geologyShown = showGeology && !!geology.data
+  // Old pits only exist in the living world, so only ask while watching it.
+  const mined = useQuery({ ...minedOutQuery(map.id), enabled: mode === 'watch' })
   const engineRef = useRef<GameEngine | null>(null)
 
   const [tool, setTool] = useState<Tool>(() => ({
@@ -237,6 +240,7 @@ function MapEditor({ map, tiles, mode, selectedId }: EditorProps) {
             map={map}
             geology={geology.data}
             geologyOverlay={geologyShown}
+            minedOut={mode === 'watch' ? mined.data : undefined}
             tiles={tiles}
             mode={mode}
             tool={tool}
@@ -249,7 +253,7 @@ function MapEditor({ map, tiles, mode, selectedId }: EditorProps) {
           <div className="hint">
             {mode === 'watch' ? (
               <>
-                <kbd>klik</kbd> makhluk atau rumah untuk mengamati · <kbd>drag</kbd>/<kbd>WASD</kbd> geser ·{' '}
+                <kbd>klik</kbd> makhluk atau bangunan untuk mengamati · <kbd>drag</kbd>/<kbd>WASD</kbd> geser ·{' '}
                 <kbd>scroll</kbd> zoom
               </>
             ) : mode === 'play' ? (
@@ -278,6 +282,7 @@ function MapEditor({ map, tiles, mode, selectedId }: EditorProps) {
                     {model && <small> — {model.name}</small>}
                   </span>
                 ))}
+                {hover.minedOut && <span className="hud-mined"> · bekas tambang (habis digali)</span>}
                 {(hover.ground?.solid || hover.object?.solid) && <em> — blok</em>}
               </span>
             ) : mode === 'play' && playerTile ? (

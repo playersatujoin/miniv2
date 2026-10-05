@@ -20,7 +20,10 @@ const (
 // act lets the brain decide and applies the consequences.
 func (s *Sim) act(c *Creature) {
 	out := &c.output
-	c.Genome.think(&c.input, &c.Hidden, out)
+	think(c.Genome, c.Mind.wIn, c.Mind.wOut, &c.input, c.Hidden, out)
+	if (s.tick+c.ID)%learnEvery == 0 {
+		s.learnStep(c)
+	}
 	tr := &c.Genome.Traits
 	t := s.terrain
 	here, _ := t.indexAt(c.X, c.Y)
@@ -80,7 +83,7 @@ func (s *Sim) act(c *Creature) {
 	if c.resting {
 		cost *= 0.5
 	}
-	cost += moveCost*speed*speed*tr.Size + visionCost*tr.Vision
+	cost += moveCost*speed*speed*tr.Size + visionCost*tr.Vision + brainCost*float64(c.Genome.Hidden)
 	if c.Pregnancy != nil {
 		cost += pregnancyCost
 	}
@@ -110,8 +113,8 @@ func (s *Sim) act(c *Creature) {
 }
 
 // work runs at most one deliberate activity this tick, in the order
-// attack > steal > give > build > craft > gather, each only if the brain
-// wants it. It returns how much the creature may still move (1 = freely).
+// attack > steal > give > teach > build > craft > gather, each only if the
+// brain wants it. It returns how much the creature may still move (1 = freely).
 func (s *Sim) work(c *Creature) float64 {
 	out := &c.output
 	if c.ActCD > 0 {
@@ -147,6 +150,9 @@ func (s *Sim) work(c *Creature) float64 {
 			c.ActCD = giveCooldown
 			return 1
 		}
+	}
+	if out[outTeach] > 0.5 && s.adult(c) && s.teach(c) {
+		return 0 // teaching (or writing) holds still
 	}
 	if c.IdleWork <= 0 && s.adult(c) {
 		if out[outBuild] > 0.5 && s.startBuild(c) || out[outCraft] > 0.5 && s.startCraft(c) {

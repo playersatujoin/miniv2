@@ -49,6 +49,7 @@ Setiap peta punya dunianya sendiri yang **terus berjalan di server Go** — juga
 - **Keluarga**: pasangan terbentuk saat anak pertama; anak ikut rumah ibu (atau ayah). **Kepala keluarga** = pemilik rumah (siapa pun yang membangunnya). Saat ia meninggal, rumah diwarisi pasangan → anak tertua → kosong (bisa diklaim orang lain).
 - **Evolusi**: anak mewarisi persilangan otak kedua orang tua (per neuron) + mutasi, juga sifat bawaan (ukuran, kecepatan, jarak pandang, metabolisme, umur, laju mutasi, warna keturunan).
 - **Ekonomi & teknologi**: kumpulkan bahan → buat bahan baru (arang, tali, beliung, bata, tembaga, perunggu, besi, baja, kaca, semen, beton, …) → bangun gubuk / rumah kayu / rumah bata, ladang, sumur, dan stasiun riset. Setiap stasiun membuka zaman baru: Zaman Batu → Logam (tungku) → Kimia (laboratorium) → Listrik → Spektroskopi → Radiasi → Nuklir (reaktor) → Partikel (akselerator).
+- **Belajar & budaya**: otak berubah selama hidup karena pengalaman (hadiah hanya dari tubuh: kenyang, sehat, tidak terluka). Ukuran otak adalah gen yang berevolusi dan memakan energi. Keahlian (membuat, membangun) dimiliki per orang, naik karena latihan, diajarkan ke anak dan murid, dan **bisa hilang** jika pemegang terakhir mati tanpa murid. Tulisan dan **perpustakaan** menyimpan pengetahuan melewati umur penulisnya.
 - **118 unsur**: seluruh tabel periodik ada. Unsur ditemukan dengan mengumpulkan (C, S, Cu, Ag, Au), meneliti mineral di stasiun sesuai zamannya, atau mensintesis unsur buatan di reaktor/akselerator.
 
 Panel kanan: tab **Populasi** (statistik, grafik, peristiwa), **Peradaban** (tangga zaman, teknologi, bangunan), **Unsur** (tabel periodik). Klik makhluk atau rumah untuk melihat status, rumah & isinya, bawaan, perbuatan baik/jahat, keluarga, dan aktivitas jaringan sarafnya.
@@ -69,6 +70,7 @@ Uji keseimbangan banyak dunia sekaligus (laporan ke `reports/<waktu>/summary.md`
 cd backend
 go run ./cmd/soak -seeds 1-8 -minutes 120              # baseline
 go run ./cmd/soak -seeds 1-48 -minutes 20 -off crime   # A/B: dunia tanpa kejahatan
+go run ./cmd/soak -seeds 1-16 -off learning           # A/B: tanpa belajar & budaya (model lama)
 ```
 
 Rencana pengembangan lengkap: `PLAN.md`.

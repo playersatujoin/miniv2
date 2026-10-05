@@ -728,6 +728,19 @@ func (g *Geology) Deposits() []Deposit {
 	return out
 }
 
+// MinedOut lists tiles whose ground deposit of a mineral has been dug out:
+// less than 1% of what was there is left. Renewables never count.
+func (g *Geology) MinedOut() [][2]int {
+	var out [][2]int
+	for t := 0; t < g.w*g.h; t++ {
+		i := t * slotsPerTile
+		if g.caps[i] > 0 && g.regrow[i] == 0 && g.isMineral(i) && g.amounts[i] < g.caps[i]*0.01 {
+			out = append(out, [2]int{t % g.w, t / g.w})
+		}
+	}
+	return out
+}
+
 // Take removes up to amount of item from the deposit at (x, y) and reports how much was taken.
 func (g *Geology) Take(x, y int, item ItemID, amount float64) float64 {
 	if !g.inside(x, y) || amount <= 0 {

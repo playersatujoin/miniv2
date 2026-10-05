@@ -41,7 +41,7 @@ func (s *Sim) sense(c *Creature) {
 		in[inResource+r] = res
 	}
 
-	partner, family, stranger := 0.0, 0.0, 0.0
+	partner, family, stranger, teacher, student := 0.0, 0.0, 0.0, 0.0, 0.0
 	nearestD, nearestRep := socialRange, 0.0
 	s.grid.near(c.X, c.Y, vision, func(o *Creature) {
 		if o == c || o.Health <= 0 {
@@ -63,6 +63,15 @@ func (s *Sim) sense(c *Creature) {
 			}
 			if d < nearestD {
 				nearestD, nearestRep = d, o.Reputation
+			}
+			if t, st := s.teacherOrStudentNear(c, o); t || st {
+				near := 1 - d/socialRange
+				if t {
+					teacher = math.Max(teacher, near)
+				}
+				if st {
+					student = math.Max(student, near)
+				}
 			}
 		}
 		// Each ray covers ±15° around its angle, so the rays tile -75°..75°.
@@ -101,6 +110,13 @@ func (s *Sim) sense(c *Creature) {
 	in[inOwnHouseNear], in[inOtherHouseNear] = s.houseCloseness(c, vision)
 	in[inCanCraft] = b2f(c.CanCraft)
 	in[inCanBuild] = b2f(c.CanBuild)
+	in[inTeacherNear] = teacher
+	in[inStudentNear] = student
+	in[inBestSkill] = s.bestSkill(c)
+	in[inReward] = c.Mind.Reward
+	if lib := s.libraryNear(c.X, c.Y, vision); lib != nil {
+		in[inLibraryNear] = 1 - lib.dist(c.X, c.Y)/vision
+	}
 	in[inClock] = math.Sin(2*math.Pi*s.time()/8 + float64(c.ID))
 	in[inNoise] = s.rng.Float64()*2 - 1
 	in[inBias] = 1

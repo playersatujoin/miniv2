@@ -217,9 +217,11 @@ func TestSimEndpoints(t *testing.T) {
 		t.Fatalf("creature: status %d", code)
 	}
 	b := detail.Brain
-	if detail.ID != id || len(b.Input) != 55 || len(b.WIn) != 55 || len(b.WIn[0]) != 24 || len(b.WRec) != 24 ||
-		len(b.WOut) != 24 || len(b.WOut[0]) != 12 || len(b.Output) != 12 || len(b.InputLabels) != 55 || len(b.OutputLabels) != 12 {
-		t.Fatalf("unexpected creature detail shape: id=%d in=%d", detail.ID, len(b.Input))
+	if detail.ID != id || len(b.Input) != sim.NumInputs || len(b.WIn) != sim.NumInputs || len(b.WIn[0]) != b.Size ||
+		len(b.WRec) != b.Size || len(b.WOut) != b.Size || len(b.WOut[0]) != sim.NumOutputs || len(b.Hidden) != b.Size ||
+		len(b.Learned) != b.Size || len(b.Output) != sim.NumOutputs || len(b.InputLabels) != sim.NumInputs ||
+		len(b.OutputLabels) != sim.NumOutputs || b.Size < 8 {
+		t.Fatalf("unexpected creature detail shape: id=%d in=%d size=%d", detail.ID, len(b.Input), b.Size)
 	}
 	if detail.Sex != "male" || detail.Role != "none" || detail.Health != 1 || detail.Inventory == nil || detail.Mother != nil {
 		t.Fatalf("unexpected Adam: %+v", detail)
@@ -228,9 +230,15 @@ func TestSimEndpoints(t *testing.T) {
 	// Raw JSON keys the frontend relies on.
 	var raw map[string]any
 	do(t, "GET", base+"/creatures/"+strconv.FormatInt(id, 10), nil, &raw)
-	for _, key := range []string{"spouse", "house", "inventory", "deeds", "reputation", "role", "health"} {
+	for _, key := range []string{"spouse", "house", "inventory", "deeds", "reputation", "role", "health", "skills", "teacher", "taught"} {
 		if _, ok := raw[key]; !ok {
 			t.Errorf("creature JSON missing %q", key)
+		}
+	}
+	brain, _ := raw["brain"].(map[string]any)
+	for _, key := range []string{"size", "learningRate", "learned"} {
+		if _, ok := brain[key]; !ok {
+			t.Errorf("brain JSON missing %q", key)
 		}
 	}
 
@@ -245,10 +253,27 @@ func TestSimEndpoints(t *testing.T) {
 	if e := know.Elements[25]; e.Symbol != "Fe" || e.Z != 26 {
 		t.Fatalf("element 26 is %+v", e)
 	}
+	var rawKnow map[string]any
+	do(t, "GET", base+"/knowledge", nil, &rawKnow)
+	tech0, _ := rawKnow["techs"].([]any)[0].(map[string]any)
+	for _, key := range []string{"holders", "lost", "written"} {
+		if _, ok := tech0[key]; !ok {
+			t.Errorf("tech JSON missing %q", key)
+		}
+	}
+
+	var mined struct {
+		Version int      `json:"version"`
+		Tiles   [][2]int `json:"tiles"`
+	}
+	if code := do(t, "GET", base+"/mined", nil, &mined); code != http.StatusOK || mined.Tiles == nil {
+		t.Fatalf("mined: status %d tiles %v", code, mined.Tiles)
+	}
 
 	var info2 map[string]any
 	do(t, "GET", base, nil, &info2)
-	for _, key := range []string{"era", "tier", "tierName", "elementsDiscovered", "elementsTotal", "houses", "structures", "crimes", "kindness", "kills"} {
+	for _, key := range []string{"era", "tier", "tierName", "elementsDiscovered", "elementsTotal", "houses", "structures", "crimes", "kindness", "kills",
+		"crimesPerYear", "kindnessPerYear", "killsPerYear", "avgBrainSize", "knowledgeLost"} {
 		if _, ok := info2[key]; !ok {
 			t.Errorf("info JSON missing %q", key)
 		}

@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, type RefObject } from 'react'
 import type { GameMap, MapGeology, TileSet } from '../api/client'
+import type { MinedOut } from '../sim/protocol'
 import { GameEngine, type Brush, type EngineEvents, type Mode, type Tool } from './engine'
 
 type Props = {
@@ -15,17 +16,32 @@ type Props = {
   geology?: MapGeology
   /** Show the geological map (rock units, feature labels) over the land. */
   geologyOverlay?: boolean
+  /** Mined-out deposits of the living world (watch mode only). */
+  minedOut?: MinedOut
   engineRef: RefObject<GameEngine | null>
   events: EngineEvents
 }
 
 /** Hosts the imperative GameEngine; React only feeds it props. */
-export function GameCanvas({ map, tiles, mode, tool, brush, selectedId, following, geology, geologyOverlay = false, engineRef, events }: Props) {
+export function GameCanvas({
+  map,
+  tiles,
+  mode,
+  tool,
+  brush,
+  selectedId,
+  following,
+  geology,
+  geologyOverlay = false,
+  minedOut,
+  engineRef,
+  events,
+}: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const minimapRef = useRef<HTMLCanvasElement>(null)
-  const latest = useRef({ mode, tool, brush, selectedId, following, geology, geologyOverlay, events, map })
+  const latest = useRef({ mode, tool, brush, selectedId, following, geology, geologyOverlay, minedOut, events, map })
   useLayoutEffect(() => {
-    latest.current = { mode, tool, brush, selectedId, following, geology, geologyOverlay, events, map }
+    latest.current = { mode, tool, brush, selectedId, following, geology, geologyOverlay, minedOut, events, map }
   })
 
   // Recreate the engine only when switching maps; data updates go through setMap below.
@@ -46,6 +62,7 @@ export function GameCanvas({ map, tiles, mode, tool, brush, selectedId, followin
     engine.setFollow(latest.current.following)
     engine.setGeology(latest.current.geology)
     engine.setGeologyOverlay(latest.current.geologyOverlay)
+    engine.setMinedOut(latest.current.minedOut)
     engineRef.current = engine
     canvasRef.current!.focus()
     return () => {
@@ -59,6 +76,8 @@ export function GameCanvas({ map, tiles, mode, tool, brush, selectedId, followin
   useEffect(() => engineRef.current?.setBrush(brush), [brush, engineRef])
   useEffect(() => engineRef.current?.setGeology(geology), [geology, engineRef])
   useEffect(() => engineRef.current?.setGeologyOverlay(geologyOverlay), [geologyOverlay, engineRef])
+  // Geology rebakes the chunks, which already read the mined-out set; this only patches changes.
+  useEffect(() => engineRef.current?.setMinedOut(minedOut), [minedOut, engineRef])
   // Selection first, so following a newly selected creature takes effect.
   useEffect(() => {
     engineRef.current?.setSelected(selectedId)

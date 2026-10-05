@@ -61,6 +61,8 @@ type yearStats struct {
 	Intervals      float64              `json:"intervals"` // years between a mother's deliveries
 	IntervalCount  int                  `json:"intervalCount"`
 	AdultDeathAges [adultDeathBins]int  `json:"adultDeathAges"`
+	Crimes         int                  `json:"crimes,omitempty"`
+	Kindness       int                  `json:"kindness,omitempty"`
 }
 
 type demography struct {
@@ -479,3 +481,20 @@ func (s *Sim) Demography() Demography {
 
 // DemographyReference returns the pre-modern reference ranges.
 func DemographyReference() map[string]MetricRef { return maps.Clone(demographyReference) }
+
+// deedRates are thefts and assaults, kindnesses and killings per simulated
+// year over the window (totals grow without bound and are hard to read).
+func (d *demography) deedRates() (crimes, kindness, kills float64) {
+	if len(d.Years) == 0 {
+		return 0, 0, 0
+	}
+	for _, y := range d.Years {
+		crimes += float64(y.Crimes)
+		kindness += float64(y.Kindness)
+		kills += float64(y.Causes.Killed)
+	}
+	n := float64(len(d.Years))
+	return round1(crimes / n), round1(kindness / n), round1(kills / n)
+}
+
+func round1(v float64) float64 { return math.Round(v*10) / 10 }
