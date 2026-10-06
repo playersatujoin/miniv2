@@ -1,11 +1,14 @@
 // Season and weather over the land in watch mode: a tint that follows the
 // soil moisture (yellowed grass in the dry season, deeper green after the
-// rains) and light rain streaks in a downpour. Both are smoothed so the
+// rains), rain streaks in a downpour slanting with the streamed wind, and
+// storms: a darker sky, heavy rain and now and then a lightning flash (soft,
+// never a strobe, and none with reduced motion). All of it is smoothed so the
 // screen never flickers: one simulated year lasts 8 s, so at 20× the seasons
 // would flip two or three times a second.
 
 import type { Weather } from '../sim/protocol'
 import { TILE, hash, type KeyAt } from './render'
+import { hasServerWind, rainSlant, windVector, type WindVector } from './wind'
 
 /** How strongly each ground kind shows the season; vegetated ground the most. */
 const VEGETATION: Record<string, number> = { grass: 1, forest_floor: 0.7, dirt: 0.45, sand: 0.12 }
@@ -27,6 +30,13 @@ const FAST_RATE = 4
 const RAIN_MAX_RATE = 2.5
 const RAIN_FROM = 1.2 // relative rainfall where streaks start
 const RAIN_FULL = 1.7
+/** Lightning only up to this pace: faster, storms come and go in a blink. */
+const LIGHTNING_MAX_RATE = 5
+/** Real seconds between strikes, at least and at most. */
+const STRIKE_GAP = [3.5, 10] as const
+/** How long a strike lights the sky, seconds; the bolt itself shows for less. */
+const FLASH_SECONDS = 0.5
+const BOLT_SECONDS = 0.22
 
 const clamp01 = (v: number) => Math.min(1, Math.max(0, v))
 
@@ -42,8 +52,15 @@ export class WeatherFx {
   private lastAt = 0
   private dry: HTMLCanvasElement | null = null
   private lush: HTMLCanvasElement | null = null
-  private readonly reducedMotion =
-    typeof window.matchMedia === 'function' ? window.matchMedia('(prefers-reduced-motion: reduce)') : null
+  /** The streamed wind (a light westerly breeze for older servers), and how stormy it looks, 0–1. */
+  private wind: WindVector = windVector(0.35, 0.3)
+  private storm = 0
+  /** Real seconds shown so far, the next strike and the last one. */
+  private clock = 0
+  private nextStrike = 2
+  private strike: { at: number; seed: number } | null = null
+  private strikes = 0
+  private readonly reducedMotion = typeof window.matchMedia === 'function' ? window.matchMedia('(prefers-reduced-motion: reduce)') : null
 
   /** Feeds the weather from a stream frame taken at simulated time `simTime`. */
   setWeather(w: Weather | null, simTime: number) {
@@ -55,6 +72,7 @@ export class WeatherFx {
     this.lastSim = simTime
     this.lastAt = now
     this.target = w
+    if (w && hasServerWind(w)) this.wind = windVector(w.windDir, w.wind)
     if (w && !this.primed) {
       this.primed = true
       this.moisture = w.moisture
@@ -72,6 +90,8 @@ export class WeatherFx {
     this.primed = false
     this.moisture = MEAN_MOISTURE
     this.rain = 0
+    this.storm = 0
+    this.strike = null
     this.lastSim = -1
   }
 
@@ -82,15 +102,67 @@ export class WeatherFx {
   }
 
   update(dt: number) {
+    this.clock += dt
     const w = this.target
     if (!w) return
     const tau = this.simRate >= FAST_RATE ? TAU_FAST : TAU_NORMAL
     this.moisture += (w.moisture - this.moisture) * (1 - Math.exp(-dt / tau))
-    const raining =
-      this.simRate <= RAIN_MAX_RATE && !this.reducedMotion?.matches
-        ? clamp01((w.rain - RAIN_FROM) / (RAIN_FULL - RAIN_FROM))
-        : 0
+    const calm = this.simRate <= RAIN_MAX_RATE && !this.reducedMotion?.matches
+    const raining = calm ? Math.max(clamp01((w.rain - RAIN_FROM) / (RAIN_FULL - RAIN_FROM)), w.storm ? 0.85 : 0) : 0
     this.rain += (raining - this.rain) * (1 - Math.exp(-dt / 0.8))
+    // A storm darkens the sky even at speed (smoothed over a few seconds there).
+    this.storm += ((w.storm ? 1 : 0) - this.storm) * (1 - Math.exp(-dt / (this.simRate >= FAST_RATE ? 4 : 1.2)))
+    if (this.storm > 0.6 && this.simRate <= LIGHTNING_MAX_RATE && !this.reducedMotion?.matches) {
+      if (this.clock >= this.nextStrike) {
+        const seed = this.strikes++
+        this.strike = { at: this.clock, seed }
+        this.nextStrike = this.clock + STRIKE_GAP[0] + (STRIKE_GAP[1] - STRIKE_GAP[0]) * hash(seed, 7, 991)
+      }
+    } else {
+      this.nextStrike = Math.max(this.nextStrike, this.clock + STRIKE_GAP[0] / 2)
+    }
+  }
+
+  /** How stormy it looks, 0–1. */
+  get stormLevel() {
+    return this.storm
+  }
+
+  /**
+   * A storm's darker sky and, now and then, lightning: a soft double flash and
+   * a jagged bolt. Call with a CSS-pixel screen transform.
+   */
+  drawStorm(ctx: CanvasRenderingContext2D, w: number, h: number) {
+    if (this.storm < 0.02) return
+    ctx.fillStyle = `rgba(12,18,32,${0.2 * this.storm})`
+    ctx.fillRect(0, 0, w, h)
+    const s = this.strike
+    if (!s) return
+    const since = this.clock - s.at
+    if (since > FLASH_SECONDS) return
+    // Two pulses, the second fainter: a lightning flash never fills the screen.
+    const pulse = since < 0.07 ? 1 : since < 0.14 ? 0.25 : since < 0.22 ? 0.7 : 0.7 * (1 - (since - 0.22) / (FLASH_SECONDS - 0.22))
+    ctx.fillStyle = `rgba(220,230,255,${0.16 * pulse * this.storm})`
+    ctx.fillRect(0, 0, w, h)
+    if (since > BOLT_SECONDS) return
+    let x = w * (0.15 + 0.7 * hash(s.seed, 1, 992))
+    let y = 0
+    const end = h * (0.35 + 0.35 * hash(s.seed, 2, 993))
+    ctx.save()
+    ctx.strokeStyle = `rgba(240,245,255,${0.85 * pulse})`
+    ctx.shadowColor = 'rgba(180,200,255,0.9)'
+    ctx.shadowBlur = 12
+    ctx.lineWidth = 2
+    ctx.lineJoin = 'round'
+    ctx.beginPath()
+    ctx.moveTo(x, y)
+    for (let i = 0; y < end; i++) {
+      y += 14 + hash(s.seed, i, 994) * 22
+      x += (hash(s.seed, i, 995) - 0.5) * 34 + this.wind.x * 6
+      ctx.lineTo(x, Math.min(y, end))
+    }
+    ctx.stroke()
+    ctx.restore()
   }
 
   /** Washes the vegetated land with the season's colour; call under the world transform. */
@@ -120,16 +192,19 @@ export class WeatherFx {
     if (this.rain < 0.02) return
     ctx.fillStyle = `rgba(20,32,52,${0.1 * this.rain})`
     ctx.fillRect(0, 0, w, h)
-    const count = Math.min(420, Math.round((this.rain * w * h) / 2600))
+    const count = Math.min(520, Math.round((this.rain * (1 + 0.4 * this.storm) * w * h) / 2600))
+    // The streaks slant with the wind: downwind as they fall.
+    const slant = rainSlant(this.wind)
+    const len = 11 + 4 * this.storm
     ctx.strokeStyle = `rgba(205,222,245,${0.25 + 0.2 * this.rain})`
     ctx.lineWidth = 1
     ctx.beginPath()
     for (let i = 0; i < count; i++) {
       const speed = 420 + hash(i, 2, 702) * 260
       const y = ((hash(i, 1, 701) * (h + 24) + time * speed) % (h + 24)) - 12
-      const x = ((hash(i, 0, 700) * (w + 40) - y * 0.22) % (w + 40) + w + 40) % (w + 40) - 20
+      const x = ((((hash(i, 0, 700) * (w + 40) + y * slant) % (w + 40)) + w + 40) % (w + 40)) - 20
       ctx.moveTo(x, y)
-      ctx.lineTo(x - 2.4, y + 11)
+      ctx.lineTo(x + len * slant, y + len)
     }
     ctx.stroke()
   }

@@ -11,7 +11,10 @@ import { AgePyramid } from './AgePyramid'
 import { DemographyHistory } from './DemographyHistory'
 import { fmtGini, nf, nf1, pct } from './format'
 
-export type MetricKey = Exclude<keyof DemographyMetrics, 'windowYears' | 'personYears' | 'deathsByCause'>
+export type MetricKey = Exclude<
+  keyof DemographyMetrics,
+  'windowYears' | 'personYears' | 'deathsByCause' | 'under5ByCause' | 'incidence'
+>
 
 type MetricSpec = {
   key: MetricKey
@@ -28,6 +31,7 @@ export const METRIC_SPECS: MetricSpec[] = [
   { key: 'survivalTo15', label: 'Bayi bertahan sampai 15 tahun', value: pct, range: (lo, hi) => `${pct(lo)}–${pct(hi)}` },
   { key: 'lifeExpectancy15', label: 'Sisa harapan hidup di umur 15', value: (v) => `+${years(v)}`, range: yearsRange },
   { key: 'infantMortality', label: 'Kematian bayi (< 1 tahun)', value: pct, range: (lo, hi) => `${pct(lo)}–${pct(hi)}` },
+  { key: 'under5Mortality', label: 'Kematian balita (< 5 tahun)', value: pct, range: (lo, hi) => `${pct(lo)}–${pct(hi)}` },
   { key: 'modalAgeAdultDeath', label: 'Usia wafat terumum (dewasa)', value: years, range: yearsRange },
   {
     key: 'tfr',
@@ -116,8 +120,8 @@ export function Demography({ mapId }: { mapId: string }) {
         <span className="small muted">{nf.format(m?.windowYears ?? 50)} tahun terakhir</span>
       </div>
       <p className="dm-caveat small muted">
-        Dibandingkan dengan masyarakat pra-modern. Penyakit dan menopause belum dimodelkan (menyusui baru versi
-        sederhana), jadi selisih dengan acuan adalah temuan, bukan galat.
+        Dibandingkan dengan masyarakat pra-modern: penyakit menular, menyusui, menopause, dan kematian bayi sudah
+        dimodelkan; gizi (protein, zat gizi mikro) dan berbagi pangan belum. Selisih dengan acuan adalah temuan, bukan galat.
         {m && m.personYears > 0 && <> Dasar hitungan: {nf.format(Math.round(m.personYears))} tahun-orang.</>}
       </p>
 

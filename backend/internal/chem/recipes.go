@@ -13,6 +13,10 @@ var recipes = []Recipe{
 	{ID: "tali", Name: "Memilin tali", Inputs: in{"serat": 2}, Outputs: in{"tali": 1}, Seconds: 2},
 	{ID: "beliung_batu", Name: "Membuat beliung batu", Inputs: in{"batu": 2, "kayu": 1, "tali": 1}, Outputs: in{"beliung_batu": 1}, Teaches: "alat_batu", Seconds: 4},
 	{ID: "tombak_batu", Name: "Membuat tombak batu", Inputs: in{"kayu": 2, "batu": 1, "tali": 1}, Outputs: in{"tombak_batu": 1}, Teaches: "alat_batu", Seconds: 4},
+	// Cutting and lashing logs takes stone tools; the first raft teaches seafaring.
+	{ID: "rakit", Name: "Merakit rakit", Inputs: in{"kayu": 4, "tali": 2}, Outputs: in{"rakit": 1}, Tech: "alat_batu", Teaches: "pelayaran", Seconds: 5},
+	// Cutting a bamboo internode wants a sharp stone edge.
+	{ID: "tabung_air", Name: "Membuat tabung air bambu", Inputs: in{"kayu": 1, "serat": 1}, Outputs: in{"tabung_air": 1}, Tech: "alat_batu", Teaches: "wadah_air", Seconds: 2},
 	{ID: "bata", Name: "Membakar bata", Inputs: in{"tanah_liat": 2, "arang": 1}, Outputs: in{"bata": 2}, Tech: "api", Teaches: "tembikar", Seconds: 4},
 	{ID: "garam", Name: "Menguapkan air laut", Inputs: in{"air_laut": 3, "arang": 1}, Outputs: in{"garam": 1}, Tech: "api", Seconds: 4},
 	{ID: "masak_rumput_laut", Name: "Memasak rumput laut", Inputs: in{"rumput_laut": 3, "arang": 1}, Outputs: in{Food: 2}, Tech: "api", Seconds: 3},

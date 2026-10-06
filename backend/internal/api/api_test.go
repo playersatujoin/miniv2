@@ -203,7 +203,7 @@ func TestSimEndpoints(t *testing.T) {
 	if _, ok := events["fields"]["v"].(float64); !ok {
 		t.Fatalf("fields event without version: %v", events["fields"])
 	}
-	if w, _ := events["frame"]["w"].([]any); len(w) != 5 {
+	if w, _ := events["frame"]["w"].([]any); len(w) != 8 {
 		t.Fatalf("frame without weather: %v", events["frame"]["w"])
 	}
 	var eco sim.EcologyView
@@ -215,7 +215,7 @@ func TestSimEndpoints(t *testing.T) {
 		t.Fatalf("a new world should hold Adam and Hawa, frame: %v", events["frame"])
 	}
 	first := creatures[0].([]any)
-	if len(first) != 12 || first[1] != "Adam" {
+	if len(first) != 17 || first[1] != "Adam" {
 		t.Fatalf("creature tuple has %d fields: %v", len(first), first)
 	}
 	if _, ok := events["structures"]["v"].(float64); !ok {
@@ -418,5 +418,55 @@ func TestSimDemographyEndpoint(t *testing.T) {
 
 	if code := do(t, "GET", srv.URL+"/api/maps/ffffffffffffffff/sim/demography", nil, nil); code != http.StatusNotFound {
 		t.Errorf("unknown map: status %d", code)
+	}
+}
+
+func TestReliefEndpoint(t *testing.T) {
+	srv := newTestServer(t)
+	seed := uint32(1337)
+	var m world.Map
+	do(t, "POST", srv.URL+"/api/maps", createRequest{Name: "Relief", Width: 64, Height: 64, Seed: &seed}, &m)
+	var rel struct {
+		Width, Height                              int
+		Elevation, Fresh                           []int
+		SeaLevel, ShoreLevel, HighLevel, PeakLevel int
+	}
+	if code := do(t, "GET", srv.URL+"/api/maps/"+m.ID+"/relief", nil, &rel); code != http.StatusOK {
+		t.Fatalf("relief: status %d", code)
+	}
+	n := rel.Width * rel.Height
+	if n != 64*64 || len(rel.Elevation) != n || len(rel.Fresh) != n {
+		t.Fatalf("relief shape: %dx%d, %d heights, %d fresh", rel.Width, rel.Height, len(rel.Elevation), len(rel.Fresh))
+	}
+	lo, hi, fresh := 1000, 0, 0
+	for i, e := range rel.Elevation {
+		lo, hi = min(lo, e), max(hi, e)
+		fresh += rel.Fresh[i]
+	}
+	if lo != 0 || hi < 990 || !(rel.SeaLevel < rel.ShoreLevel && rel.ShoreLevel < rel.HighLevel && rel.HighLevel < rel.PeakLevel) {
+		t.Fatalf("heights %d–%d, thresholds %d %d %d %d", lo, hi, rel.SeaLevel, rel.ShoreLevel, rel.HighLevel, rel.PeakLevel)
+	}
+	if fresh == 0 {
+		t.Fatal("a generated island should have rivers")
+	}
+}
+
+func TestBrainsEndpoint(t *testing.T) {
+	srv := newTestServer(t)
+	seed := uint32(7)
+	var m world.Map
+	do(t, "POST", srv.URL+"/api/maps", createRequest{Name: "Otak", Width: 64, Height: 64, Seed: &seed}, &m)
+	var b struct {
+		Population int     `json:"population"`
+		AvgTotal   float64 `json:"avgTotal"`
+		Histogram  []int   `json:"histogram"`
+		Limit      int     `json:"limit"`
+	}
+	if code := do(t, "GET", srv.URL+"/api/maps/"+m.ID+"/sim/brains", nil, &b); code != http.StatusOK {
+		t.Fatalf("brains: status %d", code)
+	}
+	// No brain-size ceiling any more: only energy limits brains.
+	if b.Limit != 0 || len(b.Histogram) == 0 || b.Population == 0 || b.AvgTotal == 0 {
+		t.Errorf("brains summary incomplete: %+v", b)
 	}
 }

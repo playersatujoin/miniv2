@@ -10,9 +10,15 @@ import (
 // terrain is the simulation's view of a map: what blocks movement and where
 // the water is. What grows on it lives in the ecology. Only fresh water
 // (rivers and lakes, see world.FreshWater) can be drunk.
+//
+// blocked means "not dry, walkable ground": houses, fields, food and the
+// ecology only ever use dry ground. How a body may still get onto a blocked
+// tile (wading, swimming, climbing) is the mobility layer, rough.
 type terrain struct {
 	w, h      int
 	blocked   []bool
+	rough     []mobility // per blocked tile: wade, deep, climb or never (see mobilityAt)
+	deepReach []uint8    // per deep-water tile: tiles to the nearest place to stand or wade
 	water     []bool
 	fresh     []bool // drinkable water
 	nearWater []bool // next to any water (fishing)
@@ -20,6 +26,55 @@ type terrain struct {
 	walkable  []int32
 	shore     []int32 // walkable tiles next to water
 	riverbank []int32 // walkable tiles next to fresh water
+
+	nav    *navGraph   // the coarse route layer (navigation.go), built on first use
+	search *navScratch // working memory for local route searches
+}
+
+// mobility is how a body can be on a tile, after RAGE's per-ped navigation
+// capabilities (Peds/NavCapabilities.h: may enter water, may climb): walk on
+// dry ground, wade in the shallows, swim or float out of one's depth, climb
+// steep ground and boulders, or never (walls, trees, a crater). The zero
+// value is "never", so a tile a test or an edit marks blocked is solid.
+type mobility uint8
+
+const (
+	mobNever mobility = iota
+	mobWalk
+	mobWade
+	mobDeep
+	mobClimb
+)
+
+// roughOf classifies a tile that is not dry, walkable ground. A boulder can
+// be scrambled over wherever it lies (except in a crater's lake); trees and
+// walls are never passable; shallow water is waded, deep water swum and
+// mountain ground climbed.
+func roughOf(ground, object int) mobility {
+	switch {
+	case object == world.Boulder && ground != world.Crater:
+		return mobClimb
+	case world.ObjectTiles[object].Solid:
+		return mobNever
+	case ground == world.Water:
+		return mobWade
+	case ground == world.DeepWater:
+		return mobDeep
+	case ground == world.Mountain:
+		return mobClimb
+	}
+	return mobNever
+}
+
+// mobilityAt is how a body can be on tile i.
+func (t *terrain) mobilityAt(i int) mobility {
+	if !t.blocked[i] {
+		return mobWalk
+	}
+	if t.rough == nil {
+		return mobNever
+	}
+	return t.rough[i]
 }
 
 func newTerrain(m *world.Map) *terrain {
@@ -28,6 +83,7 @@ func newTerrain(m *world.Map) *terrain {
 		w:         m.Width,
 		h:         m.Height,
 		blocked:   make([]bool, n),
+		rough:     make([]mobility, n),
 		water:     make([]bool, n),
 		nearWater: make([]bool, n),
 		nearFresh: make([]bool, n),
@@ -37,6 +93,7 @@ func newTerrain(m *world.Map) *terrain {
 		t.water[i] = g == world.Water || g == world.DeepWater
 		t.blocked[i] = world.GroundTiles[g].Solid || world.ObjectTiles[o].Solid
 		if t.blocked[i] {
+			t.rough[i] = roughOf(g, o)
 			continue
 		}
 		t.walkable = append(t.walkable, int32(i))
@@ -60,7 +117,40 @@ func newTerrain(m *world.Map) *terrain {
 			t.riverbank = append(t.riverbank, i)
 		}
 	}
+	t.deepReach = t.measureDeep()
 	return t
+}
+
+// measureDeep finds, for every deep-water tile, how many tiles it lies from
+// the nearest tile where a body can stand or wade (255 at most): a swimmer
+// only routes across narrow stretches of deep water (see navigation.go).
+func (t *terrain) measureDeep() []uint8 {
+	reach := make([]uint8, len(t.blocked))
+	var queue []int
+	for i := range reach {
+		switch t.mobilityAt(i) {
+		case mobDeep:
+			reach[i] = 255
+		case mobWalk, mobWade, mobClimb:
+			queue = append(queue, i)
+		}
+	}
+	for len(queue) > 0 {
+		i := queue[0]
+		queue = queue[1:]
+		x, y := i%t.w, i/t.w
+		for dy := -1; dy <= 1; dy++ {
+			for dx := -1; dx <= 1; dx++ {
+				j, ok := t.index(x+dx, y+dy)
+				if !ok || reach[j] != 255 || t.mobilityAt(j) != mobDeep {
+					continue
+				}
+				reach[j] = min(254, reach[i]+1)
+				queue = append(queue, j)
+			}
+		}
+	}
+	return reach
 }
 
 func (t *terrain) index(x, y int) (int, bool) {
@@ -142,14 +232,23 @@ func (t *terrain) clampIndex(x, y float64) int {
 
 // grid is a uniform spatial hash for neighbour queries.
 type grid struct {
-	w, h  int
+	w, h int
+	// cell is the side of a cell in tiles (gridCell if unset).
+	cell  float64
 	cells [][]*Creature
 }
 
 const gridCell = 3.0
 
+func (g *grid) size() float64 {
+	if g.cell == 0 {
+		return gridCell
+	}
+	return g.cell
+}
+
 func (g *grid) rebuild(mapW, mapH int, cs []*Creature) {
-	w, h := int(math.Ceil(float64(mapW)/gridCell)), int(math.Ceil(float64(mapH)/gridCell))
+	w, h := int(math.Ceil(float64(mapW)/g.size())), int(math.Ceil(float64(mapH)/g.size()))
 	if g.w != w || g.h != h {
 		g.w, g.h = w, h
 		g.cells = make([][]*Creature, w*h)
@@ -164,14 +263,14 @@ func (g *grid) rebuild(mapW, mapH int, cs []*Creature) {
 }
 
 func (g *grid) cellOf(x, y float64) int {
-	cx := min(g.w-1, max(0, int(x/gridCell)))
-	cy := min(g.h-1, max(0, int(y/gridCell)))
+	cx := min(g.w-1, max(0, int(x/g.size())))
+	cy := min(g.h-1, max(0, int(y/g.size())))
 	return cy*g.w + cx
 }
 
 func (g *grid) near(x, y, r float64, fn func(*Creature)) {
-	x0, x1 := max(0, int((x-r)/gridCell)), min(g.w-1, int((x+r)/gridCell))
-	y0, y1 := max(0, int((y-r)/gridCell)), min(g.h-1, int((y+r)/gridCell))
+	x0, x1 := max(0, int((x-r)/g.size())), min(g.w-1, int((x+r)/g.size()))
+	y0, y1 := max(0, int((y-r)/g.size())), min(g.h-1, int((y+r)/g.size()))
 	for cy := y0; cy <= y1; cy++ {
 		for cx := x0; cx <= x1; cx++ {
 			for _, c := range g.cells[cy*g.w+cx] {

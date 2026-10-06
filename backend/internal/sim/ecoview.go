@@ -1,6 +1,7 @@
 package sim
 
 import (
+	"encoding/base64"
 	"math"
 	"slices"
 	"strconv"
@@ -21,6 +22,12 @@ type EcoPoint struct {
 	Wild     float64                   `json:"wild"` // wild food standing on the land, units
 	Moisture float64                   `json:"moisture"`
 	ENSO     int                       `json:"enso"`
+	// Fresh water: shares of river and lake tiles running (or full), standing
+	// in pools, and dry; the median groundwater level.
+	Running     float64 `json:"running"`
+	Pools       float64 `json:"pools"`
+	DryBeds     float64 `json:"dryBeds"`
+	Groundwater float64 `json:"groundwater"`
 }
 
 func (s *Sim) sampleEcology() {
@@ -39,9 +46,43 @@ func (s *Sim) sampleEcology() {
 	p.Food = s.foodStock().total()
 	f, _, _ := s.eco.Totals()
 	p.Wild = math.Round(f)
+	if w := s.eco.Water(); w.Flowing+w.Pools+w.Under+w.Dry > 0 {
+		total := float64(w.Flowing + w.Pools + w.Under + w.Dry)
+		p.Running, p.Pools = r3(float64(w.Flowing)/total), r3(float64(w.Pools)/total)
+		p.DryBeds = r3(float64(w.Under+w.Dry) / total)
+		p.Groundwater = r3(w.Groundwater)
+	}
 	s.ecoHistory = append(s.ecoHistory, p)
 	if n := len(s.ecoHistory) - historyMax; n > 0 {
 		s.ecoHistory = slices.Delete(s.ecoHistory, 0, n)
+	}
+}
+
+// WaterPoint is the island's fresh water at one moment: shares of river and
+// lake tiles running, in pools and dry, and the median groundwater.
+type WaterPoint struct {
+	Time        float64 `json:"time"`
+	Running     float64 `json:"running"`
+	Pools       float64 `json:"pools"`
+	DryBeds     float64 `json:"dryBeds"`
+	Groundwater float64 `json:"groundwater"`
+}
+
+const (
+	waterEvery      = 7   // ticks: about twice a simulated month
+	waterHistoryMax = 460 // about twenty years
+)
+
+func (s *Sim) sampleWater() {
+	w := s.eco.Water()
+	total := float64(w.Flowing + w.Pools + w.Under + w.Dry)
+	if total == 0 {
+		return
+	}
+	s.waterHistory = append(s.waterHistory, WaterPoint{Time: s.time(), Running: r3(float64(w.Flowing) / total),
+		Pools: r3(float64(w.Pools) / total), DryBeds: r3(float64(w.Under+w.Dry) / total), Groundwater: r3(w.Groundwater)})
+	if n := len(s.waterHistory) - waterHistoryMax; n > 0 {
+		s.waterHistory = slices.Delete(s.waterHistory, 0, n)
 	}
 }
 
@@ -110,6 +151,11 @@ type EcologyView struct {
 	Food           FoodStock            `json:"food"`
 	History        []EcoPoint           `json:"history"`
 	Years          []ecology.YearRecord `json:"years"`
+	Water          ecology.WaterSummary `json:"water"`
+	WaterHistory   []WaterPoint         `json:"waterHistory"`
+	// Wells, and how many still reach the groundwater.
+	Wells    int `json:"wells"`
+	WellsDry int `json:"wellsDry"`
 }
 
 func seasonName(e *ecology.Ecology) string {
@@ -142,6 +188,17 @@ func (s *Sim) Ecology() EcologyView {
 		Food:           s.foodStock(),
 		History:        append([]EcoPoint{}, s.ecoHistory...),
 		Years:          append([]ecology.YearRecord{}, s.eco.Years()...),
+		Water:          s.eco.Water(),
+		WaterHistory:   append([]WaterPoint{}, s.waterHistory...),
+	}
+	for _, st := range s.structures {
+		if !st.kind.Well {
+			continue
+		}
+		v.Wells++
+		if i, ok := s.terrain.index(st.X, st.Y); ok && s.eco.Groundwater(i) < ecology.WellMin {
+			v.WellsDry++
+		}
 	}
 	wild, tame := s.eco.Counts()
 	start, extinct, hunted := s.eco.StartCounts(), s.eco.Extinct(), s.eco.HuntedTotal()
@@ -241,6 +298,70 @@ func (s *Sim) Fields() ([]byte, int64) {
 }
 
 // FieldsVersion is cheap to poll to see whether Fields changed.
+// Water encodes the state of every river and lake tile for the stream:
+// {"v":version,"t":[tile indices],"s":"states","l":"levels","g":"germs"},
+// states, levels and germs (0–255) as base64 bytes in the order of the tiles.
+func (s *Sim) Water() ([]byte, int64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	tiles, state, level, foul := s.eco.WaterTiles()
+	ver := s.eco.WaterVersion()
+	b := make([]byte, 0, 64+len(tiles)*8)
+	b = append(b, `{"v":`...)
+	b = strconv.AppendInt(b, ver, 10)
+	b = append(b, `,"t":[`...)
+	for k, t := range tiles {
+		if k > 0 {
+			b = append(b, ',')
+		}
+		b = strconv.AppendInt(b, int64(t), 10)
+	}
+	b = append(b, `],"s":"`...)
+	b = base64.StdEncoding.AppendEncode(b, state)
+	b = append(b, `","l":"`...)
+	b = base64.StdEncoding.AppendEncode(b, level)
+	if !s.noDisease() {
+		b = append(b, `","g":"`...)
+		b = base64.StdEncoding.AppendEncode(b, foul)
+	}
+	b = append(b, `"}`...)
+	return b, ver
+}
+
+// Mosquitoes encodes the mosquito map for the stream:
+// {"c":cell tiles,"w":cols,"h":rows,"m":"density","i":"infected"}, both
+// 0–255 per cell as base64 bytes, row-major.
+func (s *Sim) Mosquitoes() []byte {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	e := &s.epi
+	m := make([]byte, len(e.mosquito))
+	z := make([]byte, len(e.infected))
+	for k := range e.mosquito {
+		m[k] = toByte(float64(e.mosquito[k]) / mosquitoFull)
+		z[k] = toByte(float64(e.infected[k]))
+	}
+	b := make([]byte, 0, 64+len(m)*3)
+	b = append(b, `{"c":`...)
+	b = strconv.AppendInt(b, cellTiles, 10)
+	b = append(b, `,"w":`...)
+	b = strconv.AppendInt(b, int64(e.cw), 10)
+	b = append(b, `,"h":`...)
+	b = strconv.AppendInt(b, int64(e.ch), 10)
+	b = append(b, `,"m":"`...)
+	b = base64.StdEncoding.AppendEncode(b, m)
+	b = append(b, `","i":"`...)
+	b = base64.StdEncoding.AppendEncode(b, z)
+	b = append(b, `"}`...)
+	return b
+}
+
+func (s *Sim) WaterVersion() int64 {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.eco.WaterVersion()
+}
+
 func (s *Sim) FieldsVersion() int64 {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -248,7 +369,7 @@ func (s *Sim) FieldsVersion() int64 {
 }
 
 // appendWeather writes the frame's weather tuple: year phase, daylight, soil
-// moisture, ENSO state and rainfall.
+// moisture, ENSO state, rainfall, then the wind (see appendWindTail).
 func (s *Sim) appendWeather(b []byte) []byte {
 	cl := s.eco.Climate()
 	b = append(b, `,"w":[`...)
@@ -261,16 +382,21 @@ func (s *Sim) appendWeather(b []byte) []byte {
 	b = strconv.AppendInt(b, int64(cl.ENSO), 10)
 	b = append(b, ',')
 	b = strconv.AppendFloat(b, cl.Rain, 'f', 2, 64)
+	b = s.appendWindTail(b)
 	return append(b, ']')
 }
 
 // appendAnimals writes the frame's animals: id, species, x, y, heading, flags.
 func (s *Sim) appendAnimals(b []byte) []byte {
+	return s.appendViewAnimals(b, nil)
+}
+
+func (s *Sim) appendViewAnimals(b []byte, view *Viewport) []byte {
 	b = append(b, `,"a":[`...)
 	t := s.time()
 	first := true
 	for _, a := range s.eco.Animals() {
-		if a.Dead() {
+		if a.Dead() || !view.contains(a.X, a.Y) {
 			continue
 		}
 		if !first {

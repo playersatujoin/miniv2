@@ -10,7 +10,13 @@
   --danger: #ef6f6c;
   --radius: 10px;
   color-scheme: dark;
-  font-family: Inter, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  font-family:
+    Inter,
+    system-ui,
+    -apple-system,
+    'Segoe UI',
+    Roboto,
+    sans-serif;
   color: var(--text);
   background: var(--bg);
 }
@@ -701,5 +707,408 @@ button:focus-visible,
 
   .map-title {
     max-width: 14ch;
+  }
+}
+
+/* Watching: the toolbar never wraps (a longer month or season name would push the map down and
+   shift it while switching 2D ⇄ 3D); the clock gives way first, then the map's name. */
+.mode-watch .toolbar {
+  flex-wrap: nowrap;
+}
+
+.mode-watch .toolbar > *,
+.mode-watch .sim-status > * {
+  flex-shrink: 0;
+}
+
+.mode-watch .toolbar > .map-title,
+.mode-watch .toolbar > .sim-status,
+.mode-watch .sim-status > .sim-clock {
+  flex-shrink: 1;
+  min-width: 0;
+}
+
+.mode-watch .sim-status {
+  flex-wrap: nowrap;
+}
+
+.mode-watch .sim-clock {
+  overflow: hidden;
+}
+
+/* The year itself is never cut short; the era goes first on narrow screens, then the badges clip. */
+.mode-watch .sim-clock > strong {
+  flex-shrink: 0;
+}
+
+@media (max-width: 1300px) {
+  .mode-watch .sim-clock .obs-era {
+    display: none;
+  }
+}
+
+/* The month gives way first (the Ecology tab shows it too). */
+@media (max-width: 1700px) {
+  .mode-watch .sim-clock .sim-month {
+    display: none;
+  }
+}
+
+.mode-watch .sim-clock .obs-paused {
+  flex-shrink: 0;
+}
+
+/* Narrower still: the civilisation badge, then the season, give way to the year. */
+@media (max-width: 1180px) {
+  .mode-watch .sim-status .obs-tier-badge {
+    display: none;
+  }
+}
+
+@media (max-width: 1060px) {
+  .mode-watch .sim-clock .eco-badge {
+    display: none;
+  }
+}
+
+/* --- 3D view --------------------------------------------------------------- */
+
+.stage-canvas-3d {
+  cursor: grab;
+}
+
+.stage-canvas-3d:active {
+  cursor: grabbing;
+}
+
+.stage-ghost {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 1;
+}
+
+.stage-ghost > canvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.stage-ghost.fading {
+  opacity: 0;
+  transition: opacity 0.45s ease;
+}
+
+.label-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.label3d {
+  position: absolute;
+  left: 0;
+  top: 0;
+  display: none;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(16, 24, 40, 0.78);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  color: #fff;
+  font-size: 12px;
+  white-space: nowrap;
+  backdrop-filter: blur(2px);
+}
+
+.label3d-selected {
+  border-color: #ffd166;
+  color: #ffd166;
+  font-weight: 600;
+}
+
+/* --- Replay and the automatic camera (watching) ------------------------------- */
+
+.stream-badge.replay {
+  color: #ffd166;
+  border-color: #8a6a1c;
+  background: rgba(255, 209, 102, 0.12);
+}
+
+.geo-toggle[aria-disabled='true'] {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.geo-toggle[aria-disabled='true']:hover {
+  border-color: var(--border);
+  background: var(--panel-2);
+}
+
+/* A replay is framed in the accent colour, so it is never mistaken for the live world. */
+.replay-frame {
+  position: absolute;
+  inset: 0;
+  border: 3px solid rgba(255, 209, 102, 0.75);
+  pointer-events: none;
+}
+
+.stage-top,
+.replay-top {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: grid;
+  justify-items: center;
+  max-width: calc(100% - 420px);
+  pointer-events: none;
+}
+
+.stage-top > *,
+.replay-top > * {
+  min-width: 0;
+}
+
+/* Replaying: the badge takes the top centre, the camera's subject goes under it, and the usage
+   hint gives way (it would cover the badge on narrow screens). */
+.replaying .stage-top {
+  top: 54px;
+}
+
+.replaying .hint {
+  display: none;
+}
+
+.replay-badge,
+.cine-subject {
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: rgba(10, 18, 30, 0.86);
+  backdrop-filter: blur(4px);
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+  font-variant-numeric: tabular-nums;
+}
+
+.replay-badge {
+  border: 1px solid #ffd166;
+  color: var(--text);
+}
+
+.replay-badge strong {
+  color: #ffd166;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-size: 12px;
+}
+
+.cine-subject {
+  border: 1px solid #3987e5;
+  pointer-events: auto;
+}
+
+.cine-subject strong {
+  font-weight: 600;
+}
+
+.cine-subject .cine-subject-link {
+  height: auto;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font-size: 13px;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.cine-subject .cine-subject-link:hover {
+  background: none;
+  color: #ffdb85;
+}
+
+.hud.hud-hidden {
+  display: none;
+}
+
+.replay-bar {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: 12px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 209, 102, 0.45);
+  background: rgba(10, 18, 30, 0.88);
+  backdrop-filter: blur(6px);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4);
+}
+
+.replay-buttons {
+  display: flex;
+  gap: 4px;
+}
+
+.replay-btn {
+  width: 34px;
+  padding: 0;
+  font-size: 15px;
+}
+
+.replay-play {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-text);
+}
+
+.replay-play:hover:not(:disabled) {
+  background: #ffdb85;
+  border-color: #ffdb85;
+}
+
+.replay-speeds button {
+  height: 30px;
+  padding: 0 9px;
+  font-size: 13px;
+}
+
+.replay-timeline {
+  flex: 1;
+  min-width: 120px;
+  display: grid;
+  gap: 2px;
+}
+
+.replay-track {
+  position: relative;
+  height: 26px;
+  border-radius: 6px;
+  background: #1e2c42;
+  cursor: pointer;
+  touch-action: none;
+  outline: none;
+}
+
+.replay-track:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.replay-played {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  border-radius: 6px 0 0 6px;
+  background: rgba(255, 209, 102, 0.16);
+}
+
+.replay-mark {
+  position: absolute;
+  bottom: 3px;
+  width: 2px;
+  margin-left: -1px;
+  border-radius: 1px;
+  pointer-events: none;
+}
+
+.replay-cursor {
+  position: absolute;
+  top: -3px;
+  bottom: -3px;
+  width: 3px;
+  margin-left: -1.5px;
+  border-radius: 2px;
+  background: #fff;
+  box-shadow: 0 0 0 1px rgba(10, 18, 30, 0.8);
+  pointer-events: none;
+}
+
+.replay-tip {
+  position: absolute;
+  bottom: calc(100% + 10px);
+  transform: translateX(-50%);
+  display: grid;
+  gap: 2px;
+  width: max-content;
+  max-width: 340px;
+  padding: 7px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: rgba(10, 18, 30, 0.95);
+  font-size: 12px;
+  line-height: 1.4;
+  white-space: normal;
+  pointer-events: none;
+}
+
+.replay-tip-kind {
+  font-weight: 600;
+}
+
+.replay-legend {
+  display: flex;
+  gap: 12px;
+  font-size: 11px;
+}
+
+.replay-legend span {
+  display: inline-flex;
+  align-items: flex-end;
+  gap: 4px;
+}
+
+.replay-legend i {
+  display: inline-block;
+  width: 2px;
+  border-radius: 1px;
+}
+
+.replay-time {
+  display: grid;
+  min-width: 170px;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.3;
+}
+
+.replay-time small {
+  font-size: 11px;
+}
+
+.replay-exit {
+  color: #7ee2a8;
+  border-color: #2f6b4a;
+}
+
+@container stage (max-width: 900px) {
+  .replay-bar {
+    flex-wrap: wrap;
+  }
+
+  .replay-timeline {
+    order: 5;
+    flex-basis: 100%;
+  }
+
+  .stage-top,
+  .replay-top {
+    max-width: calc(100% - 220px);
+  }
+}
+
+/* The replay and camera buttons show their icon only until the toolbar has room (their aria-label
+   names them), so the clock keeps its year. */
+@media (max-width: 1800px) {
+  .toolbar .replay-toggle .btn-label,
+  .toolbar .cine-toggle .btn-label {
+    display: none;
   }
 }

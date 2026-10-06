@@ -103,6 +103,7 @@ func (e *Ecology) deriveLand() {
 	}
 	e.nearFresh = e.within(e.fresh, riparian)
 	e.nearSea = e.within(e.sea, coastal)
+	e.buildHydrology()
 }
 
 // markSeaFromEdges marks the water that reaches the edge of the map as sea.
@@ -200,10 +201,12 @@ func (e *Ecology) moisture(i int) float64 {
 	c := &e.clim
 	m := c.Moisture * float64(covers[e.cover[i]].wet)
 	if e.nearFresh[i] {
-		m = math.Max(m, riverbankWater*c.Slow-riverbankDry)
+		// Banks stay damp while the river's groundwater lasts.
+		m = math.Max(m, (riverbankWater*c.Slow-riverbankDry)*e.riverWetness(i))
 	}
 	if e.manage[i]&Irrigated != 0 {
-		m = math.Max(m, 0.9*clamp(0.4+0.9*c.Slow, 0.4, 1))
+		// A channel waters only as well as its river can give.
+		m = math.Max(m, 0.9*clamp(0.4+0.9*c.Slow, 0.4, 1)*e.irrigation(i))
 	}
 	return clamp(m, 0, 1)
 }
@@ -239,12 +242,19 @@ func (e *Ecology) grow(t, dt float64) {
 		}
 		e.fert[i] += (target - e.fert[i]) * min(1, rate*fd)
 	}
-	// Rivers and lakes shrink in a drought and hold fewer fish; the sea doesn't.
-	flow := float32(clamp(0.3+e.clim.Slow, 0.3, 1))
+	// Rivers and lakes shrink in a drought and hold fewer fish (none in a dry
+	// bed); the sea doesn't.
 	for i, c := range e.fishCap {
 		if c > 0 {
 			if e.fresh[i] {
-				c *= flow
+				switch e.WaterState(i) {
+				case WaterFlowing:
+					c *= 0.4 + 0.6*float32(e.hydro.level[i])/255
+				case WaterPools:
+					c *= 0.3
+				default:
+					c = 0
+				}
 			}
 			f := e.fish[i]
 			if f > c {

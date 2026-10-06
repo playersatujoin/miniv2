@@ -20,6 +20,8 @@ type Props = {
   minedOut?: MinedOut
   engineRef: RefObject<GameEngine | null>
   events: EngineEvents
+  /** Called once a new engine is set up, e.g. to hand it the 3D view's camera and the stream so far. */
+  onReady?: (engine: GameEngine) => void
 }
 
 /** Hosts the imperative GameEngine; React only feeds it props. */
@@ -36,12 +38,13 @@ export function GameCanvas({
   minedOut,
   engineRef,
   events,
+  onReady,
 }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const minimapRef = useRef<HTMLCanvasElement>(null)
-  const latest = useRef({ mode, tool, brush, selectedId, following, geology, geologyOverlay, minedOut, events, map })
+  const latest = useRef({ mode, tool, brush, selectedId, following, geology, geologyOverlay, minedOut, events, map, onReady })
   useLayoutEffect(() => {
-    latest.current = { mode, tool, brush, selectedId, following, geology, geologyOverlay, minedOut, events, map }
+    latest.current = { mode, tool, brush, selectedId, following, geology, geologyOverlay, minedOut, events, map, onReady }
   })
 
   // Recreate the engine only when switching maps; data updates go through setMap below.
@@ -64,6 +67,7 @@ export function GameCanvas({
     engine.setGeologyOverlay(latest.current.geologyOverlay)
     engine.setMinedOut(latest.current.minedOut)
     engineRef.current = engine
+    latest.current.onReady?.(engine)
     canvasRef.current!.focus()
     return () => {
       engine.destroy()

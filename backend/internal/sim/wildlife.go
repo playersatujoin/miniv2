@@ -85,6 +85,8 @@ func (s *Sim) hunt(c *Creature) bool {
 		meat := sp.Meat
 		room := invCapacity - c.Inventory.count()
 		c.Inventory.add("daging", min(meat, room))
+		// What the hunter can't carry stays where the animal fell (sharing.go).
+		s.leaveCarcass(target.X, target.Y, meat-min(meat, room), sp.ID)
 		if s.time()-s.lastEcoEvt["hunt"] >= huntEventGap {
 			s.lastEcoEvt["hunt"] = s.time()
 			s.event("hunt", fmt.Sprintf("%s berburu %s", c.Name, lowerName(sp.Name)), c.ID)
@@ -215,8 +217,13 @@ func (s *Sim) Maul(id int64, damage float64, species string) {
 	}
 	c.Health -= damage
 	c.Hurt = hurtSeconds
+	c.struck = s.tick
 	c.Mauled = species
 	c.Offender = nil
+	// Screams and the beast: a terrible sight for whoever is near, and a
+	// fright for the one it bit.
+	s.addStimulus(stimPredator, c.X, c.Y, 1, nil)
+	s.feel(c, moodFear, assaultFear)
 }
 
 // Home is where household house keeps its livestock: its pen, or the house.

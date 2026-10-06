@@ -9,6 +9,8 @@ import {
   type CropView,
   type Diet,
   type EcoPoint,
+  type Ecology as EcologyData,
+  type WaterPoint,
   type Enso,
   type Season,
   type SpeciesView,
@@ -55,6 +57,82 @@ const DIET_LABELS: Record<Diet, string> = {
 // normal vision 19.3, all ≥ 3:1. The legend carries names and latest counts.
 const ANIMAL_COLORS = ['#3987e5', '#d95926', '#199e70', '#c98500', '#d55181']
 const ANIMAL_SHORT = ['Rusa', 'Babi', 'Ayam', 'Kerbau', 'Harimau']
+
+// Validated palette slots on the panel surface: running water, pools, dry beds.
+const WATER_SERIES: LineSeries<WaterPoint>[] = [
+  { key: 'running', label: 'Mengalir', color: '#3987e5', value: (p) => p.running * 100 },
+  { key: 'pools', label: 'Genangan', color: '#199e70', value: (p) => p.pools * 100 },
+  { key: 'dry', label: 'Kering', color: '#c98500', value: (p) => p.dryBeds * 100 },
+]
+
+/** The island's rivers and lakes: how much runs, stands in pools or has dried, and the groundwater behind them. */
+function WaterSection({ e }: { e: EcologyData }) {
+  const spy = useSecondsPerYear()
+  const w = e.water
+  if (!w) return null
+  const total = w.flowing + w.pools + w.under + w.dry
+  if (total === 0) return null
+  const share = (n: number) => n / total
+  const parts = [
+    { label: 'Mengalir', n: w.flowing, color: '#3987e5' },
+    { label: 'Genangan', n: w.pools, color: '#199e70' },
+    { label: 'Kering, ada air di pasir', n: w.under, color: '#8d7a4f' },
+    { label: 'Kering', n: w.dry, color: '#c98500' },
+  ]
+  return (
+    <section className="obs-section" aria-labelledby="eco-water-title">
+      <div className="obs-section-head">
+        <h3 className="obs-title" id="eco-water-title">
+          Air tawar
+        </h3>
+        <span className="small muted">{nf.format(total)} petak sungai &amp; danau</span>
+      </div>
+      <div className="eco-water-bar" role="img" aria-label={parts.map((p) => `${p.label} ${pct(share(p.n))}`).join(', ')}>
+        {parts.map((p) => (p.n > 0 ? <span key={p.label} style={{ width: `${share(p.n) * 100}%`, background: p.color }} title={`${p.label}: ${nf.format(p.n)}`} /> : null))}
+      </div>
+      <p className="eco-water-legend small">
+        {parts.map((p) => (
+          <span key={p.label}>
+            <i className="obs-swatch-sm" style={{ background: p.color }} /> {p.label} {pct(share(p.n))}
+          </span>
+        ))}
+      </p>
+      <div className="obs-meters">
+        <Meter
+          label="Air tanah"
+          value={Math.min(1, w.groundwater)}
+          mark={0.3}
+          text={w.groundwater >= 0.3 ? `${pct(Math.min(1, w.groundwater))} · bisa digali` : `${pct(w.groundwater)} · terlalu dalam`}
+          color="#5a8fd0"
+        />
+        {w.lakes >= 0 && <Meter label="Danau" value={w.lakes} text={pct(w.lakes)} color="#3fa7b0" />}
+      </div>
+      {e.wells ? (
+        <p className="small">
+          🪣 {nf.format(e.wells)} sumur
+          {e.wellsDry ? <span className="obs-error"> · {nf.format(e.wellsDry)} kering</span> : ' · semua berair'}
+        </p>
+      ) : null}
+      <LineChart
+        title="Sungai & danau dari waktu ke waktu"
+        points={e.waterHistory ?? []}
+        x={(p) => p.time}
+        xLabel={(p) => formatClockShort(p.time, spy)}
+        tooltipTitle={(p) => formatClock(p.time, spy)}
+        series={WATER_SERIES}
+        fmt={(v) => `${Math.round(v)}%`}
+        floor={100}
+        extra={(p) => <span>air tanah {pct(Math.min(1, p.groundwater))}</span>}
+        empty="Grafik muncul setelah beberapa detik simulasi berjalan."
+      />
+      <p className="small muted eco-note">
+        Hujan mengisi sungai lewat aliran permukaan dan air tanah. Di musim kemarau aliran berhenti, tinggal genangan yang habis
+        menguap, meresap, dan diminum; lalu dasar sungai kering sampai hujan kembali. Di bawah pasirnya sering masih ada air
+        yang bisa digali (belik), dan sumur tetap berair selama air tanah belum turun terlalu dalam — kecuali di tahun El Niño.
+      </p>
+    </section>
+  )
+}
 
 const ANIMAL_SERIES: LineSeries<EcoPoint>[] = SPECIES.map((sp, i) => ({
   key: sp.id,
@@ -124,6 +202,8 @@ export function Ecology({ mapId }: { mapId: string }) {
           rata-rata setahun.
         </p>
       </section>
+
+      <WaterSection e={e} />
 
       <section className="obs-section" aria-labelledby="eco-food-title">
         <div className="obs-section-head">
@@ -201,7 +281,7 @@ export function Ecology({ mapId }: { mapId: string }) {
 }
 
 /** A 0–1 bar like the inspector's, with an optional reference tick (e.g. the yearly average). */
-function Meter({ label, value, text, color, mark }: { label: string; value: number; text: string; color: string; mark?: number }) {
+export function Meter({ label, value, text, color, mark }: { label: string; value: number; text: string; color: string; mark?: number }) {
   const v = Math.min(1, Math.max(0, value))
   return (
     <div className="obs-meter">

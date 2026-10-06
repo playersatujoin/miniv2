@@ -183,7 +183,7 @@ func (s *Sim) crimeEvent(text string, id int64, violent bool) {
 func (s *Sim) give(c *Creature) bool {
 	item := s.cat.edible(c.Inventory, s.handKeep(c))
 	if item == "" {
-		return false
+		return s.feedChild(c)
 	}
 	var target *Creature
 	best := -1.0
@@ -207,6 +207,7 @@ func (s *Sim) give(c *Creature) bool {
 	s.kindness++
 	s.stats.current(s).Kindness++
 	c.Reputation = math.Min(1, c.Reputation+0.05)
+	s.perceiveEvent(c, target, "give", 0.18, 0)
 	s.flash(c, fxGive)
 	c.action = ActGive
 	if s.time()-s.lastKindEvent >= kindEventGap {
@@ -262,6 +263,7 @@ func (s *Sim) steal(c *Creature) bool {
 	s.crimes++
 	s.stats.current(s).Crimes++
 	c.Reputation = math.Max(-1, c.Reputation-0.1)
+	s.perceiveEvent(c, victim, "steal", -0.3, 0)
 	s.flash(c, fxSteal)
 	c.action = ActSteal
 	s.crimeEvent(fmt.Sprintf("%s mencuri %d %s %s", c.Name, n, s.cat.itemName(id), text), c.ID, false)
@@ -284,9 +286,12 @@ func (s *Sim) attack(c *Creature) bool {
 	newAssault := target.Hurt <= 0 || target.Offender == nil || target.Offender.ID != c.ID
 	target.Health -= attackDamage * c.Genome.Traits.Size * (1 + s.weaponBonus(c))
 	target.Hurt = hurtSeconds
+	target.struck = s.tick
 	target.Offender = &Ref{c.ID, c.Name}
+	target.Mauled = "" // a person's blow, not an animal's
 	c.Energy -= attackCost
 	if newAssault {
+		s.perceiveEvent(c, target, "attack", -0.5, 8)
 		c.Deeds.Crimes++
 		s.crimes++
 		s.stats.current(s).Crimes++
@@ -302,5 +307,83 @@ func (s *Sim) attack(c *Creature) bool {
 	s.kills++
 	c.Reputation = math.Max(-1, c.Reputation-0.5)
 	s.loot(c, target.Inventory)
+	return true
+}
+
+// childMeal is the most a grown-up gives a child at once from what is
+// around them: a handful of fruit, or water scooped from the river.
+const childMeal = 0.35
+
+// needyChild is the hungriest or thirstiest child of c's family within reach,
+// and how much they need (0 none … 1 desperate).
+func (s *Sim) needyChild(c *Creature) (*Creature, float64) {
+	var child *Creature
+	need := 0.0
+	s.grid.near(c.X, c.Y, giveRange, func(o *Creature) {
+		if o == c || o.Health <= 0 || s.adult(o) || s.carrier(o) != nil || !s.kin(c, o) ||
+			math.Hypot(o.X-c.X, o.Y-c.Y) > giveRange {
+			return
+		}
+		if n := childNeed(o); n > need {
+			child, need = o, n
+		}
+	})
+	return child, need
+}
+
+// childNeed is how hungry or thirsty a child is (0 not at all … 1 desperate).
+func childNeed(o *Creature) float64 {
+	return math.Max(0, math.Max(childHungry-o.Energy, childHungry-o.Hydration)) / childHungry
+}
+
+// feedChild: with nothing in hand, a grown-up can still feed a hungry or
+// thirsty child of the family close by from what is around them: fruit
+// picked from the ground, water scooped from the river. Parents among
+// foragers do this every day; children can't yet do it well for themselves.
+func (s *Sim) feedChild(c *Creature) bool {
+	if !s.adult(c) {
+		return false
+	}
+	child, _ := s.needyChild(c)
+	if child == nil {
+		return false
+	}
+	fed := false
+	if child.Energy < childHungry {
+		x, y := int(math.Floor(c.X)), int(math.Floor(c.Y))
+		want := float32(math.Min(childMeal, 1-child.Energy) / foodValue)
+		if reach := s.foodAround(x, y); reach > 0.01 {
+			want = min(want, reach)
+			s.takeFoodAround(x, y, want)
+			s.eatWild(child, x, y, float64(want)*foodValue)
+			child.Energy += float64(want) * foodValue
+			s.eco.Current().FoodWild += float64(want) * foodValue
+			fed = true
+		}
+	}
+	if child.Hydration < childHungry {
+		if kind, tile := s.waterSource(c); kind != drinkNone {
+			gain := math.Min(childMeal, 1-child.Hydration)
+			child.Hydration += gain
+			if kind == drinkWell {
+				s.eco.DrawGroundwater(tile, gain*waterPerHydration)
+			} else {
+				s.eco.Drink(tile, gain*waterPerHydration)
+			}
+			if !s.noDisease() {
+				child.Swallowed += s.germsDrunk(kind, tile) * gain
+			}
+			fed = true
+		}
+	}
+	if !fed {
+		return false
+	}
+	s.perceiveEvent(c, child, "give", 0.12, 0)
+	c.Deeds.Kindness++
+	s.kindness++
+	s.stats.current(s).Kindness++
+	s.flash(c, fxGive)
+	c.action = ActGive
 	return true
 }

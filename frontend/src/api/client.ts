@@ -61,6 +61,21 @@ export type MapGeology = {
   deposits: [x: number, y: number, item: number, surface: 0 | 1, model: number][]
 }
 
+/** Heights of the land for the 3D view (from the map's geology, so they ignore later edits). */
+export type MapRelief = {
+  width: number
+  height: number
+  /** Elevation of every tile, 0–1000 over the map's range, row-major. */
+  elevation: number[]
+  /** Generator thresholds on the same scale: below sea level is water, above the peak level peaks. */
+  seaLevel: number
+  shoreLevel: number
+  highLevel: number
+  peakLevel: number
+  /** 1 for drinkable water (rivers to their mouth, lakes), else 0. */
+  fresh: number[]
+}
+
 export type CreateMapInput = { name: string; width: number; height: number; seed?: number }
 export type UpdateMapInput = { name: string; spawn: Point; layers: MapLayers }
 
@@ -96,6 +111,7 @@ export const api = {
     request<GameMap>(`/maps/${id}`, { method: 'PUT', body: JSON.stringify(input) }),
   deleteMap: (id: string) => request<void>(`/maps/${id}`, { method: 'DELETE' }),
   geology: (id: string) => request<MapGeology>(`/maps/${id}/geology`),
+  relief: (id: string) => request<MapRelief>(`/maps/${id}/relief`),
 }
 
 export function previewUrl(m: MapSummary, scale = 2) {

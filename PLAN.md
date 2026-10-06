@@ -36,8 +36,9 @@ Semua fase mengikuti prinsip yang sama:
 2. **Berdasar ilmu nyata.** Setiap mekanisme punya dasar dari biologi, demografi, geologi, ekonomi, atau sejarah. Kalau disederhanakan, penyederhanaannya ditulis terang-terangan.
 3. **Realisme harus bisa diukur.** Setiap fase punya kriteria penerimaan berupa angka dari uji soak, dibandingkan dengan data dunia nyata bila ada.
 4. **Pengamat tetap pengamat.** UI hanya boleh mengamati dan mengatur waktu, tidak memerintah makhluk.
-5. **Dunia tetap hidup.** Setiap perubahan format simpanan punya strategi migrasi atau reset yang jelas, dan cadangan dibuat dulu.
-6. **Anggaran performa.** Kecepatan 20× dengan populasi target harus tetap di bawah 1 core CPU, kecuali fase yang khusus menaikkan skala.
+5. **Simulasi nyata: semuanya selalu aktif.** Setiap mekanisme alam (penyakit, nyamuk, air tercemar, siklus air, dan seterusnya) selalu berjalan dan tampil alami di dunia, misalnya air keruh, kawanan nyamuk, dan orang yang tampak sakit. Tidak ada tombol atau lapisan di UI untuk menyalakan atau mematikannya. Peta dan grafik analisis hanya ada di panel pengamat. Sakelar `-off` hanya untuk uji A/B di runner soak.
+6. **Dunia tetap hidup.** Setiap perubahan format simpanan punya strategi migrasi atau reset yang jelas, dan cadangan dibuat dulu.
+7. **Anggaran performa.** Kecepatan 20× dengan populasi target harus tetap di bawah 1 core CPU, kecuali fase yang khusus menaikkan skala.
 
 ---
 
@@ -347,6 +348,24 @@ Masalah yang diwariskan:
   - Kematian bayi 0, dan peluang kembar 20% (nyata 1–2%).
 - **Ke optimasi:** dunia petani besar masih di atas anggaran performa.
 
+### Fase 2c — air yang nyata, ruang pribadi, otak yang tumbuh (Okt 2026)
+
+Dikerjakan setelah Fase 2b atas permintaan pengamat:
+- **Siklus air** (`ecology/hydrology.go`). Model reservoir linear per petak sungai dan danau, bergaya HBV: hujan, penguapan tanah, limpasan cepat, air tanah, dan aliran dasar. Air hilang lewat penguapan air terbuka (~5 mm/hari), rembesan dasar sungai (~4 mm/hari), minum (~4 L/orang/hari), dan irigasi sawah (~1,6 m/tahun); sisanya mengalir ke hilir. Satuan air 16 m³ (1 m di atas satu tile ~4×4 m).
+  - Akibatnya, sungai surut di kemarau. Anak sungai kecil berhenti mengalir dan tinggal genangan, lalu kering. Danau menyusut dari tepinya. Di bawah dasar yang kering sering masih ada air yang bisa digali (*belik*). Sumur bertahan selama air tanah belum turun terlalu dalam.
+  - Hujan pertama diserap tanah kering dulu, sehingga sungai baru mengalir lagi Oktober–November.
+  - Saat El Niño, Oktober–Desember tinggal 16–22% sungai mengalir dan 23–31% dasar sungai kering. Kemarau sesudah El Niño ikut berat karena air tanah belum pulih.
+  - Orang hanya melihat air yang masih ada, melupakan sumber yang kering, minum dari belik (lebih lambat) dan sumur, dan membangun sumur bila sungai di dekat rumahnya kering. Tepi sungai mengering bila air tanahnya turun, sawah irigasi hanya basah selama sungainya berair, dan ikan sungai mati bila sungainya kering.
+  - Event stream `water`, panel "Air tawar" di tab Ekologi, dan sakelar soak `-off water`.
+- **Ruang pribadi** (`sim/space.go`): tubuh tidak lagi saling menembus. Kerumunan menyebar membentuk lingkaran; bayi yang digendong tetap pada ibunya. Sakelar `-off space`.
+- **Neurogenesis** (`sim/growth.go`): neuron baru tumbuh selama hidup ketika hidup terus memberi kejutan (lebih cepat pada anak-anak dan hanya saat cukup makan), lalu dipangkas bila tak berguna. Tiap neuron punya bias dan konstanta waktu sendiri; neuron lambat menjadi memori kerja. Gen `neurogenesis` diwariskan dan bisa berevolusi. Batas 128 neuron per otak. Tab "🧠 Neuron" di panel bawah. Sakelar `-off neurogenesis`. Simpanan v7 (dunia v6 tetap terbaca).
+- **Tampilan 3D** untuk mode Amati (three.js): manusia berkerangka dengan pakaian per jenis kelamin dan animasi kerja, sungai mengalir dengan buih dan kaustik, rumput, burung, dan peralihan 2D⇄3D tanpa jeda.
+
+Hasil A/B (16 dunia × 900 tahun):
+- Ruang pribadi: era 1 bertahan 11/16 lawan 9/16 tanpanya.
+- Neurogenesis: rata-rata otak 24,8 lawan 19,7 neuron. Puncak populasi lebih rendah (median 127 lawan 196). Eksperimen "neuron diam" (puncak 187) menunjukkan penyebabnya keputusan yang dipelajari neuron baru, bukan biaya energinya. Gennya bisa berevolusi turun bila tak menguntungkan.
+- Siklus air: lihat `reports/fase2c/`.
+
 ---
 
 ## Fase 3 — Tubuh & kesehatan
@@ -397,7 +416,7 @@ Masalah yang diwariskan:
 - Frontend:
   - Inspector: tahap hidup, status penyakit, kekebalan, koefisien inbreeding.
   - **Pohon keluarga** (silsilah sampai Adam & Hawa).
-  - Grafik wabah, dan overlay peta kepadatan nyamuk / sumber air tercemar.
+  - Grafik wabah dan peta sebaran (nyamuk, air tercemar, telur cacing) di tab Kesehatan. Di peta dunia semuanya tampil alami (air keruh, kawanan nyamuk, orang sakit), bukan sebagai lapisan yang bisa dinyalakan.
 
 ### Kriteria penerimaan (dibandingkan data acuan Fase 0)
 
@@ -408,6 +427,47 @@ Masalah yang diwariskan:
 - Koefisien inbreeding tinggi pada generasi awal setelah Adam & Hawa, lalu menurun seiring populasi membesar.
 
 Ukuran: **L**.
+
+### Hasil Fase 3a — tahap hidup, kesuburan, kelahiran (Okt 2026)
+
+- **Penuaan** (`sim/body.go`): risiko mati karena usia tua mengikuti Gompertz (bagian senesen model Siler untuk pemburu-peramu, Gurven & Kaplan 2007: a₃ ≈ 1,5·10⁻⁴, b₃ ≈ 0,086/tahun), digeser gen `lifespan`; tidak ada yang melewati 110 tahun. Lansia melemah (tenaga turun sampai 50%).
+- **Kesuburan**: peluang hamil per bulan menurut umur (Wood 1994; puncak 25% di umur 20–30, separuhnya di umur 40), menopause sebagai gen (40–56 tahun), dan dikalikan gizi ibu. **Menyusui** menahan ovulasi penuh selama setahun dan sebagian sampai disapih (~2,4 tahun); bila bayinya meninggal, kesuburan kembali.
+- **Kelahiran**: kematian ibu sekitar 1% per persalinan (lebih tinggi bila ibu sangat muda, tua, kurang gizi, atau mengandung kembar), kembar 1,5%, dan kematian neonatal 5% (lebih tinggi bila ibu kurang gizi atau terlalu muda/tua, dan pada bayi kembar).
+- **Anak**: kemampuan makan sendiri naik bertahap dari umur 2 sampai 12 (Crittenden 2013). Anak di bawah 12 tahun tetap di dekat pengasuhnya, yaitu ibu, ayah, atau kerabat dewasa (Hewlett & Lamb 2005). Orang dewasa yang memilih **beri** dengan tangan kosong memetikkan makanan dan mengambilkan air untuk anak keluarganya yang lapar atau haus.
+  - Diagnosis menemukan masalahnya: 107 dari 141 anak yang mati kelaparan atau kehausan sedang berada di samping orang tua yang kenyang, karena air tidak bisa diberikan dan orang tua hanya bisa memberi barang bawaan. Setelah perbaikan, kematian ini turun ke 80.
+- Otak: input `anak lapar/haus dekat`, `menyusui`, `sakit`, `kurang gizi`, `calon pasangan kerabat`, dan `kesehatan calon pasangan` (simpanan v8, otak lama diperlebar otomatis).
+
+### Hasil Fase 3b — penyakit menular (Okt 2026)
+
+Desain (`sim/disease.go`, `ecology/pathogens.go`). Tidak ada yang tahu soal kuman; penyakit menyebar lewat jalur nyatanya:
+- **Diare**: kotoran di dekat air terbawa hujan ke sungai, lalu kumannya hanyut ke hilir. Kuman mati dalam beberapa minggu dan pekat di genangan musim kemarau. Penularan juga terjadi lewat halaman yang kotor, terutama pada balita yang mulai disapih. Peluang sakit jenuh terhadap dosis (dosis–respons beta-Poisson). Belik menyaring sebagian kuman, dan sumur menyaring air tanah.
+- **Malaria**: nyamuk Anopheles berkembang biak di genangan, tepi danau yang dangkal, sawah padi, dan kubangan musim hujan di dataran rendah. Bagian nyamuk yang membawa parasit mengikuti model Ross–Macdonald, dan gigitan per orang = nyamuk / (orang + hewan lain). Kekebalan klinis terbentuk setelah sering terinfeksi, jadi orang dewasa di daerah malaria kebanyakan hanya menjadi pembawa.
+- **ISPA**: menular lewat kedekatan, dengan kejenuhan di keramaian. Galur baru muncul lebih sering di populasi besar (Black 1975), dan kekebalan lama hanya melindungi sebagian.
+- **Cacingan**: telur di tanah sekitar tempat tinggal tanpa jamban. Jarang membunuh, tetapi ikut memakan makanan inangnya dan memperparah penyakit lain.
+- **Keparahan** dipengaruhi umur (kerentanan terendah sekitar umur 10), kurang gizi, cacing, kekebalan, dan gen `immunity` (lebih kuat berarti lebih boros energi). Istirahat dan kerabat yang merawat meringankan. Demam membakar energi, diare menguras cairan, dan orang sakit bergerak lebih lambat dan jarang hamil.
+- **Jamban** (`jamban`, butuh pertanian; kayu dan serat) menahan 90% kotoran orang di sekitarnya agar tidak mencemari air dan tanah.
+- **Dunia lama** (simpanan sebelum v9) mendapat kekebalan menurut umur saat dimuat. Tanpa itu, dunia berpenduduk 748 orang turun ke sekitar 380 karena wabah "tanah perawan".
+- **Tampilan**:
+  - Di peta 2D dan 3D, air tercemar tampak keruh, kawanan nyamuk beterbangan di atas tempat berkembang biaknya (lebih ramai saat senja dan malam), orang sakit diberi ikon termometer (2D) atau berjalan membungkuk (3D), dan jamban tampil sebagai bangunan.
+  - Tab **🩺 Kesehatan** berisi kasus per penyakit, kurva wabah, dan peta sebaran (nyamuk, air tercemar, telur cacing).
+  - Inspector memuat bagian "Tubuh & kesehatan".
+  - Stream mengirim event `mosquitoes` dan kekeruhan air ikut dalam event `water`. Endpoint baru `GET /sim/health`.
+  - Sakelar soak: `-off disease|sanitation|attachment`. Simpanan v9.
+
+Hasil (Starter Island; pendiri 32 dunia × 150 tahun; jangka panjang 16 dunia × 900 tahun; dunia padat = dunia uji 748 orang dan salinan dunia live 1.260 orang). Laporan: `reports/fase3/`.
+
+| Kriteria | Hasil |
+| --- | --- |
+| l15 dalam rentang pra-modern | ✓ 0,68 (pendiri), 0,69 (900 tahun); acuan 0,44–0,73 |
+| TFR 4–6, jarak lahir 3–4 tahun | TFR 6,3 (pendiri) ✓ dan 7,1 (900 tahun, sedikit di atas; Ache sekitar 8); jarak 3,2–3,5 ✓ |
+| Wabah lebih sering dan parah di permukiman padat | ✓ Kelompok pendiri hampir tak terkena ISPA (0–1% kematian); di dunia padat ISPA memuncak 6–13% penduduk sakit sekaligus dan menjadi penyakit paling mematikan. Diare di dunia padat sekitar 6% sakit sekaligus |
+| Sanitasi menurunkan kematian karena diare (A/B) | ✓ Dunia padat 60 tahun: kematian karena diare −20% dan insiden −17% hanya dengan 5 jamban untuk sekitar 800 orang. Jangka panjang (16 dunia × 900 tahun, 51 jamban dibangun sendiri): insiden diare 0,23 lawan 0,65 per orang per tahun dan kematian karena diare 2,4 lawan 4,9 per 1.000 orang-tahun (**−51%**) |
+| Inbreeding | Fase 3c (belum) |
+
+- Kematian bayi q0 0,10 (acuan Volk & Atkinson 2013: rata-rata 0,27, rentang 0,13–0,41), sedikit di bawah rentang. Balita 5q0 sekitar 0,13–0,16.
+- Penyakit menyebabkan 14–24% kematian di dunia kecil, dan sekitar 50% di dunia padat (acuan Gurven & Kaplan: lebih dari 50%). Di dunia padat, kematian karena penyakit sebagian menggantikan kematian karena kelaparan (salinan dunia live: kelaparan 29 → 19 per tahun, penduduk sekitar 15% lebih rendah).
+- Era 1 bertahan: 25/32 dengan penyakit lawan 26/32 tanpa penyakit (pendiri), 9/16 lawan 6/16 (900 tahun; selisih ini masih dalam derau 16 dunia).
+- **Belum realistis**: orang dewasa masih terlalu sering mati kelaparan dan kehausan (modus umur wafat dewasa 18). Diagnosis menunjukkan 233 dari 245 orang dewasa itu mati di dekat keluarganya, di tempat yang makanan atau airnya sudah habis: keluarga menetap sampai sumber di sekitarnya habis, tidak pindah dan tidak berbagi. Ini bagian Fase 4 (berbagi pangan) dan gizi Fase 3d.
 
 ---
 
@@ -710,3 +770,200 @@ Sumber yang dipakai sebagai dasar. Angka spesifik perlu diverifikasi ulang saat 
 - Azevedo, F. A. C. et al. (2009). Jumlah neuron otak manusia (sekitar 86 miliar).
 - Data titik leleh standar: Cu sekitar 1.085 °C, Sn sekitar 232 °C, Pb sekitar 327 °C, Fe sekitar 1.538 °C.
 - Peta Kawasan Rawan Bencana (KRB) gunung api Indonesia (PVMBG) sebagai contoh penyajian bahaya.
+## Adaptasi subsistem engine — 6 Oktober 2026
+
+Sasaran implementasi: enam kandidat pada pemeriksaan Gameporject1, disesuaikan
+dengan backend Go, frontend Three.js, dan kehendak makhluk yang berasal dari otak.
+Ini tidak menandai seluruh Fase 4–7 selesai.
+
+| Pola referensi lokal | Implementasi Miniv2 | Batas saat ini |
+| --- | --- | --- |
+| `Peds/PedIntelligence/PedPerception`, `event/EventGroup` | `sim/perception.go`, `relations.go`: FOV, occlusion, suara, ingatan terbatas, penilaian pribadi | Belum ada gosip, komunikasi bermakna, norma atau lembaga |
+| `pathserver/PathServer_PathSearch` | `sim/navigation.go`: A* lokal, tanpa pemotongan sudut, tujuan yang diketahui, pencarian ulang | Grid 2D; belum navmesh 3D, berenang, perahu, atau navigasi antar-pulau |
+| `task/System/TaskComplex` | Pelaksana rute + `Job` yang ada; pembatalan berdasarkan output otak, status di Inspector | Pendekatan tujuan untuk makan/minum/kumpulkan; craft/build memakai pekerjaan lokal yang ada |
+| `Peds/PedIntelligence/PedAILod` dan `streaming` | `cognition.go`: 5 Hz berpikir / 20 Hz tubuh; SSE viewport; mesh terrain per 32×32 tile | Kamera tidak mengubah simulasi; peta/grid, vegetasi dan layer ekologi belum di-stream sebagai aset jaringan per wilayah |
+| `timecycle/TimeCycle` | `game3d/timecycle.ts`, integrasi cuaca dan jam pada `World3D` | Hari abstrak 2 detik; pencahayaan dirata-ratakan pada playback cepat |
+| `ik/solvers`, `Peds/PedMoveBlend` | Karakter prosedural semi-realistis; kontak kaki dua ruas, arah pandang, blending aksi, LOD dan portrait | Belum motion capture, jari berartikulasi, ekspresi wajah, ragdoll atau simulasi kain |
+
+Semua implementasi ditulis untuk struktur Miniv2. Kode C++ RAGE, SDK platform,
+model dan tekstur dari arsip tidak menjadi dependensi aplikasi.
+
+### Validasi dan pengukuran
+
+- Go: unit/integration, replay seed yang sama dan save/restore, serta `go test -race ./...`.
+- Kasus baru: saksi terhalang dinding, suara tanpa identitas, batas ingatan, rute
+  menghindari dinding dan tidak menembus area tertutup, pembatalan niat, migrasi
+  bobot neuron lama/tumbuh, viewport tidak mengubah dunia, backup sebelum migrasi.
+- Frontend: typecheck/build; uji proporsi usia, solver kaki dengan target terjangkau
+  dan tidak terjangkau, kurva cahaya; pemeriksaan WebGL melalui browser.
+- Salinan dunia lama berhasil dimuat untuk pengamatan, dengan ratusan penduduk.
+  Dunia yang dipakai profiling mulai dari 908 penduduk; aturan baru menghabiskan
+  sekitar **4,47 ms/tick** untuk 20 detik simulasi di mesin ini (biaya restore tidak
+  dimasukkan). Target ≤1 core pada 20× memerlukan ≤2,5 ms/tick, jadi target tersebut
+  **belum tercapai pada populasi ini**. Hasil bukan jaminan performa perangkat lain.
+- Perbaikan lanjutan (6 Okt, sore): simpanan v10 yang dipulihkan bisa langsung
+  *panic* karena tiga dari empat makhluk bertindak dengan keputusan tersimpan sebelum
+  mengindra lagi, sementara cache minat barang (`wantVec`) tidak ikut disimpan.
+  Peluangnya tergantung isi simpanan: salinan simpanan live pukul 18.17 mematikan
+  server lama seketika. Cache kini dibangun ulang dari `Want` yang tersimpan, dan
+  `Sample` ikut disimpan (tambahan JSON, tetap v10). Ada tes regresinya.
+- Optimasi yang **tidak mengubah hasil**: dunia live disalin, lalu dijalankan
+  60 detik dengan kode lama dan baru, dan hash simpanannya identik. Isinya:
+  mengajar/belajar di rumah hanya memeriksa skill yang benar-benar dimiliki;
+  tetangga yang jelas di luar jangkauan atau di belakang ditolak sebelum `Hypot`;
+  loop belajar jaringan saraf dibuat per baris. Dunia live (~930–1.000 orang),
+  satu core, median 3 run: **4,54 → 3,94 ms/tick**. Target 2,5 ms/tick masih
+  belum tercapai. Penghematan berikutnya memerlukan time-slicing pemindaian
+  (pola `ai/ExpensiveProcess`, `ai/EntityScanner`) yang mengubah perilaku dan
+  karena itu perlu soak A/B.
+
+Soak delapan seed ×20 menit simulasi, map seed 1337, dijalankan satu dunia per
+giliran. Kontrol mematikan `perception,navigation,ai_budget` pada versi kode yang
+sama; ini membandingkan paket mekanisme, bukan mengisolasi setiap mekanisme.
+
+| Ukuran | Paket aktif | Kontrol |
+| --- | ---: | ---: |
+| Era pertama bertahan sampai akhir | 7/8 | 8/8 |
+| Median populasi akhir | 30,5 | 21,5 |
+| Dunia mencapai Zaman Logam | 2/8 | 0/8 |
+| Median harapan hidup saat lahir | 29,0 tahun | 32,6 tahun |
+| Median pembunuhan /100.000/tahun | 52 | 12,5 |
+| Median ms/tick sepanjang run | 0,168 | 0,164 |
+
+Hasil mentah: `reports/engine-adaptation/on/` dan `off/`. Paket aktif tidak lebih
+baik pada semua ukuran; seed 3 memulai era baru. Sampel pendek ini membuktikan
+mekanisme berjalan, bukan realisme demografi atau keseimbangan jangka panjang.
+Parameter kepercayaan, pendengaran, bentuk tubuh dan animasi adalah pendekatan
+untuk simulasi/visual yang harus dikalibrasi terpisah jika dipakai untuk klaim ilmiah.
+
+Simpanan v10 menambahkan ingatan, rute, dan cache keputusan. Kanal indra baru
+ditambahkan di belakang layout lama. File asli v6–v9 diarsipkan sebelum penulisan
+v10, dan kegagalan backup mencegah penimpaan simpanan lama.
+
+## Adaptasi subsistem engine II — 6 Oktober 2026 (malam)
+
+Semua sistem yang belum diadaptasi pada survei `clonegame` dikerjakan oleh lima
+agen backend dan tiga agen frontend paralel, dengan kontrak tertulis (stub per
+subsistem, kepemilikan file) dan penggabungan oleh pemimpin. Pola yang diambil,
+bukan kode C++-nya:
+
+| Pola referensi `clonegame/src/dev_ng/game` | Implementasi Miniv2 | Batas saat ini |
+| --- | --- | --- |
+| `event/EventShocking.h`, `ShockingEvents.h`, `ai/EntityScanner.h` | `sim/stimuli.go`: daftar terbatas (256) kejadian per jenis (mayat 4 s, perkelahian, pencurian, pemangsa, api, runtuh, tenggelam, jatuh), penggabungan, grid indra; `perceiveEvent` memakai grid | Mayat hanya terlihat 4 detik simulasi (setengah tahun) |
+| `Peds/PedIntelligence/PedMotivation.h`, `animation/FacialData.h` | `sim/affect.go` (takut/marah/senang/duka, gen `Reactivity`/`Recovery`/`Cheer`); `game3d/expressions.ts` | Suasana hati hanya indra; tidak memengaruhi imbalan |
+| `game/witness.h`, `WitnessInformation.h`, `task/Default/TaskChat.h` | `sim/interact.go`, `gossip.go`, `trade.go`: jabat tangan dua pihak, kabar "diceritakan", barter nilai subjektif | Tanpa uang, pasar, atau kebohongan |
+| `vfx/misc/Fire.h`, `game/wind.h`, `game/weather.h` | `ecology/fire.go`, `ecology/climate.go` (muson, badai, petir), `sim/fire.go` (bangunan, orang, tungku) | Hewan tidak lari dari api |
+| `Peds/NavCapabilities.h`, `physics/Floater.h`, `task/Movement/Climbing/`, `pathserver/PathServer_Hierarchical.cpp` | `sim/terrain.go` lapisan mobilitas, `locomotion.go`, `navigation.go` (A* berbiaya medium + wilayah 8×8), item `rakit` | Otak lama belum memakai laut/lereng, jadi berenang/memanjat masih jarang |
+| `game/MapZones.h`, `Peds/Relationships.h`, `PedGroup/PedGroup.h` | `sim/village*.go`: klaster rumah, hull, nama, pemimpin berdasar kepercayaan dengan wibawa ±3 tahun | Belum ada norma, warisan atau penyerbuan |
+| `control/replay/ReplayController.h`, `ReplayBufferMarker.h` | `sim/replay.go` (±5 menit frame terkompresi + penanda), `ReplayBar` | Inspector/desa saat replay masih keadaan live |
+| `camera/cinematic/CinematicDirector.h` | `game3d/cinematic.ts` | Belum memeriksa penghalang pandangan |
+| `naturalmotion/`, `cloth/`, `ik/solvers/QuadLegSolver.h` | `game3d/ragdoll.ts`, `cloth.ts`, `quadruped.ts` | Ragdoll tidak bertabrakan antar-tubuh |
+
+### Validasi
+
+- Go: `go test ./...` dan `go test -race ./...` lulus; replay seed sama dan
+  save/restore identik; migrasi v10→v11 diuji (bobot lama tetap di tempatnya).
+- Frontend: typecheck, 61 tes node, `vite build`; diperiksa di browser (2D, 3D,
+  tab Desa, kamera otomatis menyorot mayat dengan ragdoll).
+- Soak A/B 8 seed × 20 menit (`reports/engine-adaptation-2/on` dan `off`):
+
+| Ukuran | Engine II aktif | Dimatikan |
+| --- | ---: | ---: |
+| Era pertama bertahan | 7/8 | 6/8 |
+| Median populasi akhir | 44 | 22 |
+| Median e0 | 32,4 tahun | 29,8 tahun |
+| Median Gini | 0,41 | 0,30 |
+| Median pembunuhan /100.000 | 77 | 0 |
+| Desa terbentuk | 7/8 dunia | – |
+| Barter per dunia | 28–168 | – |
+| Kebakaran per dunia (150 tahun) | 3–14 | – |
+| ms/tick dunia kecil | 0,20 | 0,23 |
+
+  Sampel kecil; perbedaan populasi dan Gini belum boleh dianggap efek pasti.
+- Dunia live (~900 orang): sekitar +13% ms/tick dibanding versi sebelumnya
+  (6,13 vs 5,43 ms/tick di bawah beban yang sama). Target 20× pada satu core
+  tetap belum tercapai untuk populasi ini.
+- Pemimpin desa: sebelum wibawa diingat, masa jabatan rata-rata ±0,6 tahun;
+  sesudahnya, di salinan dunia live, sekitar 8 tahun per pemimpin.
+
+## Dorongan mencari makan, ingatan pangan, tabung air (6 Oktober 2026, malam)
+
+**Diagnosis** (dunia live, ±900 orang, 60 detik simulasi; alat `/tmp/mv-diag`):
+orang dewasa hanya bergerak 20% waktu; 89% berdesakan di tepi sungai (±76
+orang dalam radius 3 petak); "berkeliling" yang terlihat adalah dorongan
+tubuh di kerumunan (14% waktu) dan langkah zig-zag (arah belok berbalik pada
+24% keputusan, kelurusan jalan 0,27). Refleks sederhana masih baik (89% mau
+makan bila lapar dan ada makanan dalam jangkauan). Masalahnya: dari 183 yang
+mati kelaparan, 152 sedang ingin makan dan makanan liar ada 3–8 petak dari
+mereka, di luar pandangan; mereka tidak bergerak karena dorongan bawaan
+pendiri (refleks "cari makan saat lapar") sudah luntur selama ±200 generasi.
+
+**Perubahan** (simpanan v12):
+- Gerak halus (`act.go`, pola `PedMoveBlend`): belok dan kecepatan mengikuti
+  keinginan otak dengan konstanta waktu ±0,25 s / 0,4 s.
+- Ingatan tempat makanan (`forage.go`): 5 tempat, memudar dalam ±2 tahun,
+  dilupakan bila ternyata habis; indra `makanan yang diingat` + arahnya;
+  eksekutor rute menuju tempat yang diingat; tempat makanan diceritakan saat
+  mengobrol.
+- Tabung air bambu (`tabung_air`, teknologi `wadah_air`): diisi saat minum,
+  diminum saat jauh dari air, membawa kuman sumbernya.
+- Dorongan bawaan (`drive.go`): empat neuron di gen setiap orang (lapar →
+  jalan dan makan, belok ke makanan yang diingat; haus → ke air lebih dulu),
+  netral saat kenyang. Dimasukkan sekali saat migrasi; selanjutnya biasa
+  diwariskan, dimutasi, atau dihapus oleh evolusi.
+- Otak tanpa batas ukuran: hanya biaya energi per neuron yang membatasi.
+
+**Hasil:** dunia live yang sama, 60 detik: mati kelaparan 183 → 132; bergerak
+20% → 26,5%; mau makan saat lapar 89% → 94%; namun mati kehausan 20 → 53
+(orang mulai meninggalkan sungai). Dunia baru 8 seed × 150 tahun
+(`reports/forage-drive/on` vs `reports/engine-adaptation-2/on`): era pertama
+bertahan 8/8 (sebelumnya 7/8), median populasi 76 (44), e0 33,5 (32,4);
+kelaparan + kehausan tetap ±58% kematian. Dunia masih dibatasi pangan: populasi
+tumbuh sampai pangan habis. Sasaran berikutnya: berbagi pangan, cadangan, gizi
+(3d), genetika (3c).
+
+## Gizi (3d), genetika (3c), berbagi pangan (Fase 4) — simpanan v13 (7 Oktober 2026)
+
+Dikerjakan tiga agen paralel, digabung pemimpin. Semua aturan dunia; otak tetap
+memutuskan.
+
+- **Fase 3d — gizi** (`chem/nutrition.go`, `ecology/nutrition.go`,
+  `sim/nutrition.go`): tiap makanan punya kepadatan protein (USDA × skor mutu
+  protein ÷ kebutuhan WHO/FAO/UNU 2007) dan mikronutrien (vit. A, besi, seng,
+  yodium, vit. C, folat; FAO/WHO 2004). Tubuh menyimpan status protein dan
+  mikronutrien yang naik-turun dalam hitungan bulan; kebutuhan anak, hamil dan
+  menyusui berbeda. Kurang gizi: anak kerdil (tinggi tertinggal, mengejar
+  sebagian), infeksi lebih berat, kesuburan turun, risiko melahirkan dan
+  neonatal naik, luka lambat sembuh. Indra `kurang gizi` kini terisi.
+  Soak (`reports/fase3d`): q0 0,08 → 0,12 (masuk acuan), l15 0,80 → 0,74.
+  Di dunia yang bergantung pada padi, sebagian besar orang kekurangan
+  mikronutrien — pola monokultur beras.
+- **Fase 3c — genetika** (`sim/genetics.go`, `pedigree.go`, `geneview.go`):
+  31 lokus diploid (13 kelainan resesif mematikan bayi, 6 otot/tulang lemah,
+  6 kekebalan lemah, 5 kesuburan rendah, 1 talasemia yang juga melindungi dari
+  malaria); muatan pendiri ±0,3 lethal equivalent per gamet (Gao dkk. 2015).
+  Koefisien inbreeding F dari silsilah (7 generasi). Indra `calon pasangan
+  kerabat` dan `kesehatan calon pasangan` kini terisi. Pohon keluarga di
+  Inspector (`/sim/creatures/{id}/family`). Soak (`reports/fase3c`): F 0,25 di
+  generasi 2, puncak ±0,44 (generasi 9–12), turun ke ±0,17 setelah generasi
+  36; anak dengan F ≥ 1/4 mati sebelum umur 1 tahun 14,5% (vs 8,2% tanpa
+  genetika); seleksi membersihkan alel letal (0,022 → 0,007 dalam 900 tahun).
+  Penghindaran kerabat belum berevolusi dalam 900 tahun.
+- **Fase 4 — berbagi pangan** (`sim/sharing.go`): bangkai buruan tertinggal di
+  tempat dan bisa dimakan siapa saja; *demand sharing* (orang lapar makan satu
+  satuan dari bekal kerabat yang lebih kenyang atau orang yang membawa banyak;
+  Peterson 1993, Blurton Jones 1984); *bawon* (siapa pun boleh membantu panen,
+  membawa pulang 1/6; Collier dkk. 1974); lumbung desa; orang lapar tanpa
+  ingatan tempat makan mengenal blok lahan terdekat yang paling banyak
+  makanannya. Dunia lama 60 detik: mati kelaparan 157 → 55, simpanan lumbung
+  0 → 304.
+
+**Gabungan v13** (8 seed × 150 tahun, `reports/v13/on`): kelaparan 37% → 10%
+dari kematian, kehausan 22%, usia tua 25%; e0 38,0; e15 33,7; modus umur wafat
+dewasa 26 (sebelumnya 18–20); TFR 5,8. Dunia lama (±900 orang, 60 detik):
+kelaparan 183 → 52, populasi akhir 892 → 1.080, ISPA menjadi pembunuh utama di
+permukiman padat.
+
+Masih belum: isyarat/komunikasi bermakna, uang dan pasar, norma dan hukuman,
+kepemilikan tanah dan warisan, aliansi/penyerbuan (sisa Fase 4); Fase 5 (dunia
+besar), Fase 6 (bencana), Fase 7 (fisika material).

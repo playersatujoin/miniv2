@@ -58,6 +58,10 @@ type State struct {
 	Start   []int     `json:"start"`
 	Extinct []bool    `json:"extinct"`
 	Stats   Stats     `json:"stats"`
+	// The water cycle (missing in saves from before it; then filled afresh).
+	Hydro *hydroState `json:"hydro,omitempty"`
+	// Fires and burnt land (missing in saves from before fire: nothing burns).
+	Fire *fireState `json:"fire,omitempty"`
 }
 
 // State captures the ecology for saving.
@@ -78,6 +82,8 @@ func (e *Ecology) State() *State {
 		Start:   e.fauna.start,
 		Extinct: e.fauna.extinct,
 		Stats:   e.stats,
+		Hydro:   e.saveHydrology(),
+		Fire:    e.saveFire(),
 	}
 	// An emptied slice saves like one that never held anything.
 	if len(st.Plots) == 0 {
@@ -117,6 +123,7 @@ func Restore(l Land, st *State, rng *rand.Rand, opts Options) (*Ecology, error) 
 	}
 	e.clim = st.Climate
 	e.clim.Off = opts.NoClimate
+	e.restoreHydrology(st.Hydro)
 	for _, p := range st.Plots {
 		ci, ok := e.cropIndex(p.Crop)
 		if !ok || p.Tile < 0 || int(p.Tile) >= n || e.plotAt[p.Tile] != 0 {
@@ -147,6 +154,11 @@ func Restore(l Land, st *State, rng *rand.Rand, opts Options) (*Ecology, error) 
 	e.stats.ready()
 	f.rebuild(e)
 	e.indexRipe()
+	e.restoreFire(st.Fire)
+	if e.clim.Seed == 0 {
+		// A save from before the wind: the weather takes a seed of its own now.
+		e.clim.Seed = e.weatherSeed()
+	}
 	return e, nil
 }
 
@@ -189,6 +201,8 @@ func (e *Ecology) UpdateLand(l Land) {
 	wasBlocked := e.land.Blocked
 	e.land = l
 	e.deriveLand()
+	// The rivers may run differently now: fill them afresh.
+	e.fillHydrology()
 	e.baseVegetation()
 	for _, i32 := range e.walkable {
 		if i := int(i32); wasBlocked[i] {
@@ -219,6 +233,7 @@ func (e *Ecology) UpdateLand(l Land) {
 	}
 	e.fauna.rebuild(e)
 	e.indexRipe()
+	e.fireLandChanged()
 }
 
 func (e *Ecology) nearestOpen(x, y float64) (float64, float64, bool) {

@@ -33,6 +33,10 @@ var demographyMetrics = []metric{
 	{"meanAgeFirstBirth", "Umur ibu saat anak pertama", "tahun", 1, func(f final) *float64 { return f.Demography.MeanAgeFirstBirth }},
 	{"gini", "Ketimpangan kekayaan (Gini)", "", 2, func(f final) *float64 { return f.Demography.Gini }},
 	{"infantMortality", "Kematian bayi (q0)", "", 3, func(f final) *float64 { return f.Demography.InfantMortality }},
+	{"under5Mortality", "Kematian balita (5q0)", "", 3, func(f final) *float64 { return f.Demography.Under5Mortality }},
+	{"diarrheaIncidence", "Diare per orang per tahun", "", 2, func(f final) *float64 { return f.Demography.Incidence[0] }},
+	{"malariaIncidence", "Malaria per orang per tahun", "", 2, func(f final) *float64 { return f.Demography.Incidence[1] }},
+	{"respiratoryIncidence", "ISPA per orang per tahun", "", 2, func(f final) *float64 { return f.Demography.Incidence[2] }},
 	{"sexRatio", "Rasio kelamin (♂ per 100 ♀)", "", 0, func(f final) *float64 { return f.Demography.SexRatio }},
 	{"householdSize", "Anggota per rumah", "orang", 1, func(f final) *float64 { return f.Demography.HouseholdSize }},
 	{"homicideRate", "Pembunuhan per 100.000 tahun-orang", "", 0, func(f final) *float64 { return f.Demography.HomicideRate }},
@@ -47,6 +51,8 @@ var worldMetrics = []metric{
 		return intNum(*f.FirstHouseMinute)
 	}},
 	{"population", "Populasi", "", 0, func(f final) *float64 { return intNum(f.Population) }},
+	{"latrines", "Jamban", "", 0, func(f final) *float64 { return intNum(f.Latrines) }},
+	{"wells", "Sumur", "", 0, func(f final) *float64 { return intNum(f.Wells) }},
 	{"maxGeneration", "Generasi maks", "", 0, func(f final) *float64 { return intNum(f.MaxGeneration) }},
 	{"tier", "Zaman", "", 0, func(f final) *float64 { return intNum(f.Tier) }},
 	{"elements", "Unsur", "", 0, func(f final) *float64 { return intNum(f.Elements) }},
@@ -97,7 +103,7 @@ func median(vs []float64) *float64 {
 
 func medians(runs []run) map[string]*float64 {
 	out := map[string]*float64{}
-	for _, m := range append(slices.Clone(worldMetrics), demographyMetrics...) {
+	for _, m := range append(append(slices.Clone(worldMetrics), demographyMetrics...), nutritionMetrics...) {
 		var vs []float64
 		for _, r := range runs {
 			if v := m.get(r.Final); v != nil {
@@ -210,28 +216,54 @@ func markdown(rep report) string {
 		fmt.Fprintf(&b, "| %s | %s |\n", m.label, fmtPtr(md[m.key], m.digit))
 	}
 
-	var causes [5]int
-	for _, r := range rep.Runs {
-		c := r.Final.Demography.DeathsByCause
-		causes[0] += c.Starvation
-		causes[1] += c.Thirst
-		causes[2] += c.OldAge
-		causes[3] += c.Killed
-		causes[4] += c.Animal
-	}
-	total := causes[0] + causes[1] + causes[2] + causes[3] + causes[4]
-	b.WriteString("\n## Penyebab kematian (semua dunia, 50 tahun terakhir)\n\n| Penyebab | Kematian | Bagian |\n| --- | ---: | ---: |\n")
-	for i, name := range []string{"Kelaparan", "Kehausan", "Usia tua", "Dibunuh", "Diterkam hewan"} {
-		share := 0.0
-		if total > 0 {
-			share = float64(causes[i]) * 100 / float64(total)
+	var causes, under5 [13]int
+	tally := func(dst *[13]int, c sim.DeathCounts) {
+		for i, n := range []int{c.Starvation, c.Thirst, c.OldAge, c.Killed, c.Animal, c.Childbirth, c.Neonatal, c.Diarrhea, c.Malaria, c.Respiratory, c.Burned, c.Drowned, c.Fall} {
+			dst[i] += n
 		}
-		fmt.Fprintf(&b, "| %s | %d | %s%% |\n", name, causes[i], fmtPtr(num(share), 0))
 	}
-	b.WriteString("\nCatatan: simulasi belum punya penyakit (Fase 3), sedangkan di masyarakat nyata penyakit menyebabkan lebih dari separuh kematian. Perbedaan ini temuan, bukan galat.\n")
+	for _, r := range rep.Runs {
+		tally(&causes, r.Final.Demography.DeathsByCause)
+		tally(&under5, r.Final.Demography.Under5ByCause)
+	}
+	total, total5 := 0, 0
+	for i := range causes {
+		total += causes[i]
+		total5 += under5[i]
+	}
+	share := func(n, of int) string {
+		if of == 0 {
+			return "–"
+		}
+		return fmtPtr(num(float64(n)*100/float64(of)), 0) + "%"
+	}
+	b.WriteString("\n## Penyebab kematian (semua dunia, 50 tahun terakhir)\n\n| Penyebab | Kematian | Bagian | Balita (<5) | Bagian |\n| --- | ---: | ---: | ---: | ---: |\n")
+	for i, name := range []string{"Kelaparan", "Kehausan", "Usia tua", "Dibunuh", "Diterkam hewan", "Melahirkan", "Neonatal (minggu pertama)", "Diare", "Malaria", "Radang paru (ISPA)", "Terbakar", "Tenggelam", "Terjatuh"} {
+		fmt.Fprintf(&b, "| %s | %d | %s | %d | %s |\n", name, causes[i], share(causes[i], total), under5[i], share(under5[i], total5))
+	}
+	ill := causes[7] + causes[8] + causes[9]
+	ill5 := under5[7] + under5[8] + under5[9]
+	fmt.Fprintf(&b, "| **Penyakit menular** | %d | %s | %d | %s |\n", ill, share(ill, total), ill5, share(ill5, total5))
+	b.WriteString("\nAcuan: di masyarakat pemburu-peramu penyakit menyebabkan sekitar 70% kematian (Gurven & Kaplan 2007), terutama pada anak.\n")
 	culture(&b, rep)
 	ecologySection(&b, rep)
+	engineSection(&b, rep)
+	nutritionSection(&b, rep)
+	geneticsSection(&b, rep)
 	return b.String()
+}
+
+// engineSection reports the engine adaptation II systems at the end of each run.
+func engineSection(b *strings.Builder, rep report) {
+	b.WriteString("\n## Engine II: pertukaran, desa, api, air\n\n")
+	b.WriteString("| Seed | Bicara | Barter | Kabar | Desa | Warga desa | Ganti pemimpin | Kebakaran | Bangunan terbakar | Rakit dibawa | Tenggelam | Terjatuh | Stimulus aktif |\n")
+	b.WriteString("| ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |\n")
+	for _, r := range rep.Runs {
+		e := r.Final.Engine
+		fmt.Fprintf(b, "| %d | %d | %d | %d | %d | %d | %d | %d | %d | %d | %d | %d | %d |\n", r.Seed,
+			e.Exchange.Talks, e.Exchange.Trades, e.Exchange.Rumors, e.Villages.Villages, e.Villages.Villagers,
+			e.Villages.LeaderChanges, e.Fire.Started, e.Fire.Buildings, e.Water.Rafts, e.Water.Drowned, e.Water.Falls, e.Stimuli.Active)
+	}
 }
 
 // culture reports lifetime learning, skills and brain size (Fase 1).

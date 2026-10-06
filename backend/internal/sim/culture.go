@@ -171,18 +171,19 @@ func (s *Sim) teach(c *Creature) bool {
 	}
 	var student *Creature
 	tech, lead := "", minLead
-	s.grid.near(c.X, c.Y, teachRange, func(o *Creature) {
-		if o == c || o.Health <= 0 || math.Hypot(o.X-c.X, o.Y-c.Y) > teachRange {
-			return
-		}
-		for _, t := range s.cat.techs {
-			if l := c.Skills[t.ID]; l >= skillPractise {
-				if d := l - o.Skills[t.ID]; d > lead || d == lead && student != nil && o.ID < student.ID {
-					student, tech, lead = o, t.ID, d
+	var buf [8]heldSkill
+	if mine := s.practised(c, buf[:0]); len(mine) > 0 {
+		s.grid.near(c.X, c.Y, teachRange, func(o *Creature) {
+			if o == c || o.Health <= 0 || math.Hypot(o.X-c.X, o.Y-c.Y) > teachRange {
+				return
+			}
+			for _, k := range mine {
+				if d := k.level - o.Skills[k.id]; d > lead || d == lead && student != nil && o.ID < student.ID {
+					student, tech, lead = o, k.id, d
 				}
 			}
-		}
-	})
+		})
+	}
 	if student != nil {
 		from := &Ref{c.ID, c.Name}
 		student.Teacher, student.TeacherUntil = from, s.tick+teacherMemory
@@ -330,17 +331,51 @@ func (s *Sim) beWatched(w *Creature) {
 // their household. Only kin within watchRange count, and only what they can
 // practise.
 func (s *Sim) learnAtHome(c *Creature) {
+	var buf [8]heldSkill
 	s.grid.near(c.X, c.Y, watchRange, func(o *Creature) {
 		if o == c || o.Health <= 0 || len(o.Skills) == 0 || !s.kin(c, o) || math.Hypot(o.X-c.X, o.Y-c.Y) > watchRange {
 			return
 		}
-		for _, t := range s.cat.techs {
-			theirs := o.Skills[t.ID]
-			if lead := theirs - c.Skills[t.ID]; theirs >= skillPractise && lead > 0 {
-				s.raise(c, t.ID, c.Skills[t.ID]+homeLearnRate*lead, "home", &Ref{o.ID, o.Name})
+		for _, k := range s.practised(o, buf[:0]) {
+			if lead := k.level - c.Skills[k.id]; lead > 0 {
+				s.raise(c, k.id, c.Skills[k.id]+homeLearnRate*lead, "home", &Ref{o.ID, o.Name})
 			}
 		}
 	})
+}
+
+// heldSkill is a technology someone can practise and how well.
+type heldSkill struct {
+	index int // in the catalog
+	id    string
+	level float64
+}
+
+// practised lists the catalog technologies c can practise, in catalog
+// order. People hold a skill or two of dozens, so this reads their own
+// skills rather than asking about each technology there is.
+func (s *Sim) practised(c *Creature, buf []heldSkill) []heldSkill {
+	for t, l := range c.Skills {
+		if l < skillPractise {
+			continue
+		}
+		i, ok := s.techIndex[t]
+		if !ok { // beyond the indexed catalog, or not in it at all
+			return s.practisedSlow(c, buf[:0])
+		}
+		buf = append(buf, heldSkill{i, t, l})
+	}
+	slices.SortFunc(buf, func(a, b heldSkill) int { return a.index - b.index })
+	return buf
+}
+
+func (s *Sim) practisedSlow(c *Creature, buf []heldSkill) []heldSkill {
+	for i, t := range s.cat.techs {
+		if l := c.Skills[t.ID]; l >= skillPractise {
+			buf = append(buf, heldSkill{i, t.ID, l})
+		}
+	}
+	return buf
 }
 
 // read lets a literate creature at a library learn what is written there.

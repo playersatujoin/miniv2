@@ -1,19 +1,29 @@
 import { useQuery } from '@tanstack/react-query'
+import { lazy, Suspense, useState } from 'react'
 import { ApiError } from '../../api/client'
 import { creatureQuery } from '../../sim/api'
 import {
   ACTION_LABELS,
+  DISEASE_LABELS,
+  LOCOMOTION_LABELS,
+  MOOD_LABELS,
   ROLE_LABELS,
   SEX_SYMBOL,
+  STAGE_LABELS,
+  type BodyView,
   type CreatureDetail,
   type CreatureRef,
   type Deeds,
+  type ExchangeView,
   type HouseDetail,
+  type MoodView,
   type Skill,
 } from '../../sim/protocol'
-import { BrainView } from './BrainView'
 import { Chips } from './Chips'
 import { SEX_COLOR, SEX_LABEL, formatYears, hueColor, nf, reputationWord, useSecondsPerYear } from './format'
+import { MOOD_BAR_LABELS, MOOD_COLOR, MOOD_KEYS, dominantMood, temperWord } from './moods'
+import { NutritionSection } from './NutritionSection'
+import { FamilyTree } from './FamilyTree'
 
 type Props = {
   mapId: string
@@ -21,14 +31,23 @@ type Props = {
   following: boolean
   onSelect: (id: number | null) => void
   onFollow: (follow: boolean) => void
+  /** Opens the Neuron tab, where this brain is shown whole. */
+  onShowBrain?: () => void
 }
 
 const STATUS = { warning: '#fab219', critical: '#d03b3b' }
+const CharacterPortrait = lazy(() => import('../../game3d/CharacterPortrait'))
 // Diverging pair (dataviz reference, dark steps): red = disliked, blue = respected.
 const REPUTATION = { neg: '#e66767', pos: '#3987e5' }
 
 /** Fill carries severity; the track is a faint step of the same colour. */
-function Meter({ label, value, text, color, severity = false }: {
+function Meter({
+  label,
+  value,
+  text,
+  color,
+  severity = false,
+}: {
   label: string
   value: number
   text: string
@@ -77,7 +96,8 @@ function ReputationMeter({ value }: { value: number }) {
   )
 }
 
-function PersonLink({ who, none, onSelect }: { who: CreatureRef | null | undefined; none: string; onSelect: (id: number) => void }) {
+/** A person's name as a button that opens them in the Inspector (plain text for id 0, "none" when missing). */
+export function PersonLink({ who, none, onSelect }: { who: CreatureRef | null | undefined; none: string; onSelect: (id: number) => void }) {
   if (!who) return <span className="muted">{none}</span>
   // id 0 is not a creature (e.g. reading at an ownerless library), so nothing to select.
   if (who.id === 0) return <span>{who.name}</span>
@@ -92,7 +112,23 @@ const pct = (v: number) => `${Math.round(v * 100)}%`
 
 const ROLE_ICON: Record<CreatureDetail['role'], string> = { head: '👑', member: '🏠', none: '⛺' }
 
-export function Inspector({ mapId, id, following, onSelect, onFollow }: Props) {
+const LOCOMOTION_ICON: Record<NonNullable<CreatureDetail['locomotion']>, string> = {
+  '': '',
+  wading: '🌊',
+  swimming: '🏊',
+  rafting: '🛶',
+  climbing: '🧗',
+}
+
+const MEMORY_MODE: Record<CreatureDetail['memories'][number]['mode'], string> = {
+  direct: 'Mengalami',
+  seen: 'Melihat',
+  heard: 'Mendengar',
+  told: 'Diceritakan',
+}
+
+export function Inspector({ mapId, id, following, onSelect, onFollow, onShowBrain }: Props) {
+  const [portrait, setPortrait] = useState(false)
   const q = useQuery(creatureQuery(mapId, id))
   const spy = useSecondsPerYear()
 
@@ -132,7 +168,8 @@ export function Inspector({ mapId, id, following, onSelect, onFollow }: Props) {
             </span>
           </h3>
           <p className="small muted">
-            {SEX_LABEL[c.sex]} · Generasi {c.generation} · {c.adult ? 'Dewasa' : 'Anak'}
+            {SEX_LABEL[c.sex]} · Generasi {c.generation} ·{' '}
+            {c.body ? (STAGE_LABELS[c.body.stage] ?? c.body.stage) : c.adult ? 'Dewasa' : 'Anak'}
           </p>
         </div>
         <button type="button" className="ghost obs-close" aria-label="Tutup" title="Tutup" onClick={() => onSelect(null)}>
@@ -147,12 +184,109 @@ export function Inspector({ mapId, id, following, onSelect, onFollow }: Props) {
             {ROLE_ICON[c.role]} {ROLE_LABELS[c.role]}
           </span>
         )}
+        {c.locomotion && (
+          <span className="obs-pill obs-pill-move" title="Cara bergerak saat ini">
+            {LOCOMOTION_ICON[c.locomotion]} {LOCOMOTION_LABELS[c.locomotion] ?? c.locomotion}
+          </span>
+        )}
+        {c.village && (
+          <span
+            className={`obs-pill obs-pill-village ${c.leader ? 'leader' : ''}`}
+            title={c.leader ? `Pemimpin desa ${c.village.name}: orang yang paling dipercaya warganya` : `Warga desa ${c.village.name}`}
+          >
+            {c.leader ? '🚩 Pemimpin' : '🏘'} {c.village.name}
+          </span>
+        )}
+        {!c.village && c.leader && <span className="obs-pill obs-pill-village leader">🚩 Pemimpin desa</span>}
+        {(c.waterRoom ?? 0) > 0 && (
+          <span className="obs-pill" title="Air minum yang dibawa dalam tabung bambu">
+            💧 Tabung {Math.round((100 * (c.waterCarried ?? 0)) / (c.waterRoom ?? 1))}%
+          </span>
+        )}
+        {(c.foodPlaces?.length ?? 0) > 0 && (
+          <span
+            className="obs-pill"
+            title={`Tempat makanan yang diingat:\n${c
+              .foodPlaces!.map((p) => `(${Math.round(p.x)}, ${Math.round(p.y)}) · ${Math.round(p.rich * 100)}%`)
+              .join('\n')}`}
+          >
+            🧺 Ingat {c.foodPlaces!.length} tempat makan
+          </span>
+        )}
         {c.pregnant && <span className="obs-pill obs-pill-pregnant">Hamil</span>}
+        {c.body?.ill && <span className={`obs-pill obs-pill-ill ${c.body.ill.danger >= 1 ? 'grave' : ''}`}>🌡 {c.body.ill.name}</span>}
         <label className="obs-follow">
           <input type="checkbox" checked={following} onChange={(e) => onFollow(e.target.checked)} />
           Ikuti kamera
         </label>
       </div>
+
+      <details className="obs-portrait" onToggle={(e) => setPortrait(e.currentTarget.open)}>
+        <summary>Karakter 3D · lihat lebih dekat</summary>
+        {portrait && (
+          <Suspense fallback={<p className="small muted">Memuat karakter…</p>}>
+            <CharacterPortrait person={c} />
+          </Suspense>
+        )}
+        {portrait && <p className="small muted">Seret untuk memutar · gulir untuk memperbesar</p>}
+      </details>
+
+      {c.execution && (
+        <div className="obs-execution">
+          <strong>{ACTION_LABELS[c.execution.action] ?? c.execution.action}</strong>
+          <span>
+            {
+              { approach: 'Menuju lokasi', blocked: 'Jalur terhalang', reached: 'Tiba di lokasi', perform: 'Sedang bekerja' }[
+                c.execution.phase
+              ]
+            }
+          </span>
+          {c.execution.target && (
+            <small className="muted">
+              Tujuan {c.execution.target.x.toFixed(1)}, {c.execution.target.y.toFixed(1)} · {c.execution.waypoints} langkah rute
+            </small>
+          )}
+          {c.execution.remaining != null && <small className="muted">Sisa {c.execution.remaining.toFixed(1)} detik simulasi</small>}
+        </div>
+      )}
+
+      <details className="obs-private-memory">
+        <summary>Hubungan & ingatan · {c.relations?.length ?? 0} orang</summary>
+        <p className="small muted">Penilaian pribadi dari pengalaman dan kejadian yang disaksikan.</p>
+        {(c.relations ?? []).map((r) => (
+          <div className="obs-relation" key={r.person.id}>
+            <PersonLink who={r.person} none="Tidak dikenal" onSelect={onSelect} />
+            <span style={{ color: r.trust >= 0 ? REPUTATION.pos : REPUTATION.neg }}>
+              {r.trust > 0.05 ? 'Percaya' : r.trust < -0.05 ? 'Tidak percaya' : 'Netral'} {r.trust.toFixed(2)}
+            </span>
+          </div>
+        ))}
+        {!c.relations?.length && <p className="small muted">Belum ada pengalaman sosial yang diingat.</p>}
+        <ol className="obs-memories">
+          {(c.memories ?? [])
+            .slice(-5)
+            .reverse()
+            .map((m, i) => (
+              <li
+                key={`${m.tick}-${i}`}
+                className={m.mode === 'told' ? 'obs-mem-told' : undefined}
+                title={m.mode === 'told' ? 'Kabar dari orang lain (gosip): tidak disaksikan sendiri, jadi kurang diyakini' : undefined}
+              >
+                <span>
+                  {m.mode === 'told' && <span aria-hidden="true">💬 </span>}
+                  {MEMORY_MODE[m.mode] ?? m.mode} {{ give: 'pemberian', steal: 'pencurian', attack: 'pertengkaran' }[m.kind]}
+                </span>
+                {m.actor && (
+                  <>
+                    {' '}
+                    · <PersonLink who={m.actor} none="" onSelect={onSelect} />
+                  </>
+                )}
+                <small className="muted"> · keyakinan {Math.round(m.confidence * 100)}%</small>
+              </li>
+            ))}
+        </ol>
+      </details>
 
       <div className="obs-meters">
         <Meter
@@ -167,6 +301,11 @@ export function Inspector({ mapId, id, following, onSelect, onFollow }: Props) {
         {c.pregnant && <Meter label="Kehamilan" value={c.gestation} text={pct(c.gestation)} color="#d55181" />}
         {c.reputation != null && <ReputationMeter value={c.reputation} />}
       </div>
+
+      {c.mood && <MoodCard mood={c.mood} />}
+      {c.exchange && <ExchangeCard exchange={c.exchange} action={c.action} onSelect={onSelect} />}
+
+      {c.body && <BodyCard body={c.body} female={c.sex === 'female'} adult={c.adult} onSelect={onSelect} />}
 
       <h4 className="obs-subtitle">Keluarga</h4>
       <dl className="obs-kv">
@@ -189,9 +328,9 @@ export function Inspector({ mapId, id, following, onSelect, onFollow }: Props) {
           ({c.x.toFixed(1)}, {c.y.toFixed(1)})
         </dd>
       </dl>
-      {firstHumans && c.generation === 0 && (
-        <p className="obs-note small muted">Tanpa orang tua — awal dari seluruh umat di dunia ini.</p>
-      )}
+      {firstHumans && c.generation === 0 && <p className="obs-note small muted">Tanpa orang tua — awal dari seluruh umat di dunia ini.</p>}
+      <h4 className="obs-subtitle">Pohon keluarga &amp; genetika</h4>
+      <FamilyTree mapId={mapId} id={c.id} onSelect={onSelect} />
 
       {c.house ? (
         <HouseCard house={c.house} selfId={c.id} onSelect={onSelect} />
@@ -226,32 +365,232 @@ export function Inspector({ mapId, id, following, onSelect, onFollow }: Props) {
 
       <h4 className="obs-subtitle">Otak</h4>
       <p className="obs-note small muted">
-        Jaringan saraf {c.brain.input.length}→{c.brain.hidden.length}→{c.brain.output.length} dengan memori, diwarisi dari
-        kedua induk lalu bermutasi.
-        {c.brain.learningRate != null &&
-          ' Selama hidup, bobotnya ikut berubah oleh pengalaman (kenyang, haus, sakit) — hasil belajar ini tidak diwariskan.'}{' '}
-        Semua keputusannya — bekerja, berbagi, mengajar, mencuri, atau menyerang — berasal dari jaringan ini sendiri,
-        ditambah input <em>acak (kehendak)</em>. Kamu hanya mengamati.
+        Semua keputusannya — bekerja, berbagi, mengajar, mencuri, atau menyerang — berasal dari jaringan sarafnya sendiri, ditambah input{' '}
+        <em>acak (kehendak)</em>. Kamu hanya mengamati.
       </p>
-      {(c.brain.size != null || c.brain.learningRate != null) && (
-        <dl className="obs-kv">
-          <dt>Neuron tersembunyi</dt>
-          <dd>
-            {nf.format(c.brain.size ?? c.brain.hidden.length)}{' '}
-            <span className="muted small">(diwarisi, bisa bertambah/berkurang lewat evolusi)</span>
-          </dd>
-          {c.brain.learningRate != null && (
+      <dl className="obs-kv">
+        <dt>Neuron</dt>
+        <dd>
+          {nf.format(c.brain.hidden.length + (c.brain.grown ?? 0))}{' '}
+          <span className="muted small">
+            ({nf.format(c.brain.hidden.length)} bawaan
+            {c.brain.grown != null && <> + {nf.format(c.brain.grown)} tumbuh selama hidup</>})
+          </span>
+        </dd>
+        {c.brain.learningRate != null && (
+          <>
+            <dt>Laju belajar</dt>
+            <dd>{c.brain.learningRate > 0 ? c.brain.learningRate.toPrecision(2).replace('.', ',') : '0 (tidak belajar)'}</dd>
+          </>
+        )}
+      </dl>
+      {onShowBrain && (
+        <button type="button" className="obs-brain-open" onClick={onShowBrain}>
+          🧠 Lihat seluruh otaknya di tab Neuron →
+        </button>
+      )}
+    </section>
+  )
+}
+
+/** Moods 0–1 each (engine adaptation II): four bars and the one that shows on their face. */
+function MoodCard({ mood }: { mood: MoodView }) {
+  const dominant = dominantMood(mood)
+  return (
+    <>
+      <h4 className="obs-subtitle">Suasana hati</h4>
+      <div className="obs-mood">
+        <p className="obs-mood-now">
+          <i
+            className="obs-dot"
+            style={dominant ? { background: MOOD_COLOR[dominant] } : { background: 'transparent', boxShadow: 'inset 0 0 0 2px #8ea0bb' }}
+            aria-hidden
+          />
+          <strong>{MOOD_LABELS[dominant] ?? dominant}</strong>
+          <span className="small muted">{dominant ? '— terlihat di wajahnya' : '— tidak ada perasaan yang menonjol'}</span>
+        </p>
+        <div className="obs-mood-bars">
+          {MOOD_KEYS.map((k) => {
+            const v = Math.min(1, Math.max(0, mood[k] ?? 0))
+            return (
+              <div key={k} className={`obs-mood-row ${k === dominant ? 'dominant' : ''}`}>
+                <span>{MOOD_BAR_LABELS[k]}</span>
+                <div
+                  className="obs-meter-track"
+                  role="meter"
+                  aria-label={`${MOOD_BAR_LABELS[k]}: ${pct(v)}`}
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                  aria-valuenow={Math.round(v * 100)}
+                  style={{ background: `color-mix(in srgb, ${MOOD_COLOR[k]} 18%, transparent)` }}
+                >
+                  <div className="obs-meter-fill" style={{ width: `${v * 100}%`, background: MOOD_COLOR[k] }} />
+                </div>
+                <span className="obs-mood-val">{pct(v)}</span>
+              </div>
+            )
+          })}
+        </div>
+        {(mood.reactivity != null || mood.recovery != null || mood.cheer != null) && (
+          <p
+            className="small muted obs-note"
+            title="Gen watak bawaan (sekitar 1): seberapa kuat kejadian menggerakkan perasaannya, seberapa cepat reda, dan seberapa riang saat tenang"
+          >
+            Watak: {temperWord(mood.reactivity, 'tenang', 'peka')} · pulih {temperWord(mood.recovery, 'lambat', 'cepat')} ·{' '}
+            {temperWord(mood.cheer, 'murung', 'riang')}
+          </p>
+        )}
+      </div>
+    </>
+  )
+}
+
+const CHAT_VERB = { talk: 'mengobrol', trade: 'bertukar barang' } as const
+
+/** The two-person exchange under way (or the last one) and how many they have had. */
+function ExchangeCard({
+  exchange: x,
+  action,
+  onSelect,
+}: {
+  exchange: ExchangeView
+  action: CreatureDetail['action']
+  onSelect: (id: number) => void
+}) {
+  const chat = x.chat
+  const now = chat && (action === 'talk' || action === 'trade')
+  return (
+    <>
+      <h4 className="obs-subtitle">Obrolan &amp; barter</h4>
+      {chat ? (
+        <p className={`obs-chat obs-chat-${chat.kind}`}>
+          <span aria-hidden="true">{chat.kind === 'trade' ? '🔁' : '💬'} </span>
+          {chat.ended == null ? (
             <>
-              <dt>Laju belajar</dt>
-              <dd>
-                {c.brain.learningRate > 0 ? c.brain.learningRate.toPrecision(2).replace('.', ',') : '0 (tidak belajar)'}
-              </dd>
+              Mengajak <PersonLink who={chat.with} none="seseorang" onSelect={onSelect} /> {CHAT_VERB[chat.kind]}{' '}
+              <span className="muted">— menunggu jawaban</span>
+            </>
+          ) : chat.ok ? (
+            <>
+              {now ? 'Sedang ' : 'Terakhir '}
+              {CHAT_VERB[chat.kind]} dengan <PersonLink who={chat.with} none="seseorang" onSelect={onSelect} />
+            </>
+          ) : (
+            <>
+              Ajakan {CHAT_VERB[chat.kind]} kepada <PersonLink who={chat.with} none="seseorang" onSelect={onSelect} />{' '}
+              <span className="muted">tidak berbalas</span>
             </>
           )}
-        </dl>
+        </p>
+      ) : (
+        <p className="small muted obs-note">
+          {(x.talks ?? 0) + (x.trades ?? 0) > 0
+            ? 'Tidak sedang mengobrol atau bertukar barang.'
+            : 'Belum pernah mengobrol atau bertukar barang.'}
+        </p>
       )}
-      <BrainView brain={c.brain} />
-    </section>
+      <dl className="obs-kv">
+        <dt>Obrolan</dt>
+        <dd>{nf.format(x.talks ?? 0)} kali</dd>
+        <dt>Barter</dt>
+        <dd>{nf.format(x.trades ?? 0)} kali</dd>
+        {x.told != null && (
+          <>
+            <dt title="Ingatan tentang orang lain yang hanya ia dengar dari cerita (gosip)">Ingatan dari cerita</dt>
+            <dd>{nf.format(x.told)}</dd>
+          </>
+        )}
+      </dl>
+    </>
+  )
+}
+
+const IMMUNITY_HINT = 'Kekebalan dari sakit sebelumnya; memudar bila lama tidak terpapar'
+
+/** Body and health (Fase 3): the illness now, immunity, worms, nursing and fertility. */
+function BodyCard({
+  body: b,
+  female,
+  adult,
+  onSelect,
+}: {
+  body: BodyView
+  female: boolean
+  adult: boolean
+  onSelect: (id: number) => void
+}) {
+  const ill = b.ill
+  return (
+    <>
+      <h4 className="obs-subtitle">Tubuh &amp; kesehatan</h4>
+      {ill ? (
+        <div className={`obs-ill ${ill.danger >= 1 ? 'grave' : ill.danger >= 0.6 ? 'serious' : ''}`}>
+          <strong>🌡 Sakit {ill.name}</strong>
+          <span className="small">
+            {pct(ill.progress)} perjalanan penyakit · {ill.danger >= 1 ? 'kritis — bisa meninggal' : ill.danger >= 0.6 ? 'berat' : 'ringan'}
+          </span>
+          <div className="obs-meter-track" aria-hidden>
+            <div className="obs-meter-fill" style={{ width: `${ill.progress * 100}%`, background: '#e66767' }} />
+          </div>
+        </div>
+      ) : (
+        <p className="small muted obs-note">
+          Sehat{b.carrier ? ' — tetapi masih membawa parasit malaria (bisa menular lewat nyamuk)' : ''}.
+        </p>
+      )}
+      <NutritionSection nutrition={b.nutrition} />
+      <dl className="obs-kv">
+        <dt title={IMMUNITY_HINT}>Kekebalan</dt>
+        <dd title={IMMUNITY_HINT}>
+          {(Object.keys(DISEASE_LABELS) as (keyof typeof DISEASE_LABELS)[]).map((k, i) => (
+            <span key={k}>
+              {i > 0 && ' · '}
+              {DISEASE_LABELS[k]} {pct(b.immunity?.[k] ?? 0)}
+            </span>
+          ))}
+        </dd>
+        <dt title="Gen bawaan: pertahanan tubuh lebih kuat, tetapi butuh energi lebih banyak">Gen kekebalan</dt>
+        <dd>{b.gene.toFixed(2)}×</dd>
+        <dt>Cacingan</dt>
+        <dd>
+          {b.worms < 0.05
+            ? 'tidak'
+            : b.worms < 0.3
+              ? `ringan (${pct(b.worms)})`
+              : b.worms < 0.6
+                ? `sedang (${pct(b.worms)})`
+                : `berat (${pct(b.worms)})`}
+        </dd>
+        {b.vigor < 0.999 && (
+          <>
+            <dt>Tenaga</dt>
+            <dd>{pct(b.vigor)} (melemah karena usia)</dd>
+          </>
+        )}
+        {b.carer && (
+          <>
+            <dt>Diasuh oleh</dt>
+            <dd>
+              <PersonLink who={b.carer} none="—" onSelect={onSelect} />
+            </dd>
+          </>
+        )}
+        {female && adult && (
+          <>
+            <dt>Menopause</dt>
+            <dd>umur {Math.round(b.menopause)}</dd>
+            <dt title="Peluang hamil dalam sebulan bila berhubungan, menurut umur, gizi, dan menyusui">Kesuburan</dt>
+            <dd>{b.fertility > 0 ? `${pct(b.fertility)} per bulan` : b.nursing ? 'tertahan (menyusui)' : '—'}</dd>
+          </>
+        )}
+        {b.nursing && (
+          <>
+            <dt>Menyusui</dt>
+            <dd>ya</dd>
+          </>
+        )}
+      </dl>
+    </>
   )
 }
 
@@ -281,9 +620,8 @@ function SkillsCard({ creature: c, onSelect }: { creature: CreatureDetail; onSel
         </ul>
       )}
       <p className="obs-note small muted">
-        Garis putih = batas {Math.round(PRACTICE_THRESHOLD * 100)}%: di atasnya keahlian bisa dipraktikkan. Keahlian naik
-        karena latihan dan diajari, turun pelan bila tak dipakai, dan hilang bersama pemiliknya kalau tak diajarkan atau
-        ditulis.
+        Garis putih = batas {Math.round(PRACTICE_THRESHOLD * 100)}%: di atasnya keahlian bisa dipraktikkan. Keahlian naik karena latihan dan
+        diajari, turun pelan bila tak dipakai, dan hilang bersama pemiliknya kalau tak diajarkan atau ditulis.
       </p>
     </>
   )
@@ -372,6 +710,8 @@ const DEEDS: { key: keyof Deeds; label: string }[] = [
   { key: 'harvested', label: '🌾 Memanen' },
   { key: 'hunted', label: '🏹 Berburu' },
   { key: 'tamed', label: '🐔 Menjinakkan' },
+  { key: 'talks', label: '🗣 Mengobrol' },
+  { key: 'trades', label: '🔁 Barter' },
 ]
 
 function DeedsGrid({ deeds }: { deeds: Deeds }) {
@@ -379,7 +719,8 @@ function DeedsGrid({ deeds }: { deeds: Deeds }) {
     <>
       <h4 className="obs-subtitle">Perbuatan</h4>
       <div className="obs-stat-grid obs-deeds">
-        {DEEDS.map((d) => (
+        {/* Talks and trades only from servers that count them. */}
+        {DEEDS.filter((d) => deeds[d.key] != null || (d.key !== 'talks' && d.key !== 'trades')).map((d) => (
           <div key={d.key} className="obs-stat" title={d.label}>
             <span className="obs-stat-label">{d.label}</span>
             <strong>{nf.format(deeds[d.key] ?? 0)}</strong>

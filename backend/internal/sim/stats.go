@@ -54,7 +54,7 @@ type yearStats struct {
 	Year           int64                `json:"year"`
 	Exposure       [2][numBands]float64 `json:"exposure"` // person-years
 	Deaths         [2][numBands]int     `json:"deaths"`
-	Causes         deathCounts          `json:"causes"`
+	Causes         DeathCounts          `json:"causes"`
 	Births         [numBands]int        `json:"births"` // children, by the mother's age band
 	FirstBirthAges float64              `json:"firstBirthAges"`
 	FirstBirths    int                  `json:"firstBirths"`
@@ -63,6 +63,10 @@ type yearStats struct {
 	AdultDeathAges [adultDeathBins]int  `json:"adultDeathAges"`
 	Crimes         int                  `json:"crimes,omitempty"`
 	Kindness       int                  `json:"kindness,omitempty"`
+	// Fase 3b: deaths of children under five by cause, and new bouts of
+	// each disease.
+	Under5 DeathCounts      `json:"under5"`
+	Cases  [numDiseases]int `json:"cases"`
 }
 
 type demography struct {
@@ -115,15 +119,9 @@ func (d *demography) death(s *Sim, c *Creature, cause string) {
 	y := d.current(s)
 	age := s.ageYears(c)
 	y.Deaths[c.Sex][bandOf(age)]++
-	switch cause {
-	case "starvation":
-		y.Causes.Starvation++
-	case "thirst":
-		y.Causes.Thirst++
-	case "killed":
-		y.Causes.Killed++
-	default:
-		y.Causes.OldAge++
+	y.Causes.add(cause)
+	if age < 5 {
+		y.Under5.add(cause)
 	}
 	if age >= 15 {
 		y.AdultDeathAges[min(int((age-15)/2), adultDeathBins-1)]++
@@ -151,7 +149,7 @@ func (s *Sim) year() int { return int(s.time()/SecondsPerYear) + 1 }
 // --- Period life table -------------------------------------------------------
 
 type lifeTableResult struct {
-	e0, e15, l15, q0 float64
+	e0, e15, l5, l15, q0 float64
 }
 
 // lifeTable builds an abridged period life table from person-years and deaths
@@ -202,6 +200,7 @@ func lifeTable(exposure, deaths [numBands]float64) (lifeTableResult, bool) {
 		T[b] = T[b+1] + L[b]
 	}
 	r.e0 = T[0]
+	r.l5 = l[2] // bands 0, 1–4, then 5
 	r.l15 = l[band15]
 	if l[band15] > 0 {
 		r.e15 = T[band15] / l[band15]
@@ -271,7 +270,12 @@ type DemographyMetrics struct {
 	HouseholdSize      *float64    `json:"householdSize"`
 	HomicideRate       *float64    `json:"homicideRate"`
 	Gini               *float64    `json:"gini"`
-	DeathsByCause      deathCounts `json:"deathsByCause"`
+	DeathsByCause      DeathCounts `json:"deathsByCause"`
+	// Fase 3b: the chance of dying before five (5q0), deaths under five by
+	// cause, and new bouts of each disease per person-year.
+	Under5Mortality *float64              `json:"under5Mortality"`
+	Under5ByCause   DeathCounts           `json:"under5ByCause"`
+	Incidence       [numDiseases]*float64 `json:"incidence"`
 }
 
 type DemographyPoint struct {
@@ -291,6 +295,8 @@ type Demography struct {
 	Current        DemographyMetrics    `json:"current"`
 	History        []DemographyPoint    `json:"history"`
 	Reference      map[string]MetricRef `json:"reference"`
+	// Genetics (Fase 3c): inbreeding by generation and over time.
+	Genetics GeneticsInfo `json:"genetics"`
 }
 
 // Reference ranges for pre-modern small-scale societies; see
@@ -299,7 +305,9 @@ var demographyReference = map[string]MetricRef{
 	"lifeExpectancy": {Low: 21, High: 37, Source: "Gurven & Kaplan (2007), pemburu-peramu"},
 	"survivalTo15": {Low: 0.44, High: 0.73, Source: "Gurven & Kaplan (2007), Tabel 2–3",
 		Note: "rata-rata 0,57"},
-	"lifeExpectancy15":   {Low: 28, High: 43, Source: "Gurven & Kaplan (2007), Tabel 3"},
+	"lifeExpectancy15": {Low: 28, High: 43, Source: "Gurven & Kaplan (2007), Tabel 3"},
+	"infantMortality": {Low: 0.13, High: 0.41, Source: "Volk & Atkinson (2013), 20 populasi pemburu-peramu",
+		Note: "rata-rata 0,27 (SD 0,07); rentang ±2 SD"},
 	"modalAgeAdultDeath": {Low: 68, High: 78, Source: "Gurven & Kaplan (2007), Tabel 4"},
 	"tfr": {Low: 5, High: 7, Source: "Kompilasi 5 populasi (Ache, Agta, Hadza, Hiwi, !Kung); arXiv:2601.13442",
 		Note: "rata-rata 6,2; sumber sekunder"},
@@ -319,7 +327,8 @@ func ptr(v float64, decimals int) *float64 {
 // metrics computes the indicators over the rolling window.
 func (d *demography) metrics(s *Sim) DemographyMetrics {
 	var exposure, deaths, births, female [numBands]float64
-	var causes deathCounts
+	var causes, under5 DeathCounts
+	var cases [numDiseases]int
 	var adultAges [adultDeathBins]int
 	firstAges, intervals := 0.0, 0.0
 	firsts, intervalN := 0, 0
@@ -334,10 +343,11 @@ func (d *demography) metrics(s *Sim) DemographyMetrics {
 			female[b] += y.Exposure[Female][b]
 			births[b] += float64(y.Births[b])
 		}
-		causes.Starvation += y.Causes.Starvation
-		causes.Thirst += y.Causes.Thirst
-		causes.OldAge += y.Causes.OldAge
-		causes.Killed += y.Causes.Killed
+		causes = causes.plus(y.Causes)
+		under5 = under5.plus(y.Under5)
+		for d, n := range y.Cases {
+			cases[d] += n
+		}
 		firstAges += y.FirstBirthAges
 		firsts += y.FirstBirths
 		intervals += y.Intervals
@@ -351,17 +361,22 @@ func (d *demography) metrics(s *Sim) DemographyMetrics {
 		WindowYears:   len(d.Years),
 		PersonYears:   math.Round(total*10) / 10,
 		DeathsByCause: causes,
+		Under5ByCause: under5,
 	}
 	if total >= minExposure {
 		if lt, ok := lifeTable(exposure, deaths); ok {
 			m.LifeExpectancy = ptr(lt.e0, 1)
 			m.SurvivalTo15 = ptr(lt.l15, 3)
 			m.InfantMortality = ptr(lt.q0, 3)
+			m.Under5Mortality = ptr(1-lt.l5, 3)
 			if lt.l15 > 0 {
 				m.LifeExpectancy15 = ptr(lt.e15, 1)
 			}
 		}
 		m.HomicideRate = ptr(float64(causes.Killed)/total*1e5, 0)
+		for d, n := range cases {
+			m.Incidence[d] = ptr(float64(n)/total, 2)
+		}
 	}
 	if v, ok := tfr(births, female); ok {
 		m.TFR = ptr(v, 2)
@@ -476,6 +491,7 @@ func (s *Sim) Demography() Demography {
 		Current:        s.stats.metrics(s),
 		History:        append([]DemographyPoint{}, s.stats.History...),
 		Reference:      demographyReference,
+		Genetics:       s.geneticsInfo(),
 	}
 }
 

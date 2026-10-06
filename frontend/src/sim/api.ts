@@ -1,6 +1,22 @@
 import { queryOptions, useMutation, useQueryClient } from '@tanstack/react-query'
 import { request } from '../api/client'
-import type { CreatureDetail, Demography, Ecology, Knowledge, MinedOut, SimInfo, SimSpeed } from './protocol'
+import {
+  parseFrame,
+  parseStructures,
+  type BrainsSummary,
+  type CreatureDetail,
+  type Demography,
+  type Ecology,
+  type HealthView,
+  type Knowledge,
+  type MinedOut,
+  type ReplayIndex,
+  type SimFrame,
+  type SimInfo,
+  type SimSpeed,
+  type StructuresMessage,
+  type Village,
+} from './protocol'
 
 export const simInfoQuery = (mapId: string) =>
   queryOptions({
@@ -42,6 +58,24 @@ export const ecologyQuery = (mapId: string) =>
     refetchInterval: 3000,
   })
 
+/** Disease: who is ill, the epidemic curve, and the mosquito, worm and fouled-water maps. */
+export const healthQuery = (mapId: string) =>
+  queryOptions({
+    queryKey: ['sim', mapId, 'health'],
+    queryFn: () => request<HealthView>(`/maps/${mapId}/sim/health`),
+    refetchInterval: 2000,
+    retry: false,
+  })
+
+/** The island's brains: sizes, growth and pruning, the biggest alive, and their history. */
+export const brainsQuery = (mapId: string) =>
+  queryOptions({
+    queryKey: ['sim', mapId, 'brains'],
+    queryFn: () => request<BrainsSummary>(`/maps/${mapId}/sim/brains`),
+    refetchInterval: 2000,
+    retry: false,
+  })
+
 /** Mined-out deposits (old pits) and felled trees (stumps) of a living world. */
 export const minedOutQuery = (mapId: string) =>
   queryOptions({
@@ -61,3 +95,35 @@ export function useSetSimSpeed(mapId: string) {
 }
 
 export const simStreamUrl = (mapId: string) => `/api/maps/${mapId}/sim/stream`
+
+/** Villages with their land, people and leaders (the stream also pushes these). */
+export const villagesQuery = (mapId: string) =>
+  queryOptions({
+    queryKey: ['sim', mapId, 'villages'],
+    queryFn: () => request<Village[]>(`/maps/${mapId}/sim/villages`),
+    refetchInterval: 3000,
+    retry: false,
+  })
+
+/** The replay's timeline: recorded frames, building versions and markers. */
+export const replayIndexQuery = (mapId: string) =>
+  queryOptions({
+    queryKey: ['sim', mapId, 'replay'],
+    queryFn: () => request<ReplayIndex>(`/maps/${mapId}/sim/replay`),
+    refetchInterval: 2000,
+    retry: false,
+  })
+
+/** A recorded frame at or just before tick, and the building version it shows. */
+export async function fetchReplayFrame(mapId: string, tick: number): Promise<{ frame: SimFrame; structures: number }> {
+  const res = await fetch(`/api/maps/${mapId}/sim/replay/frame?tick=${Math.floor(tick)}`)
+  if (!res.ok) throw new Error(`replay frame: ${res.status}`)
+  return { frame: parseFrame(await res.text()), structures: Number(res.headers.get('X-Structures-Version') ?? 0) }
+}
+
+/** Buildings as they stood in a recorded version. */
+export async function fetchReplayStructures(mapId: string, version: number): Promise<StructuresMessage> {
+  const res = await fetch(`/api/maps/${mapId}/sim/replay/structures/${version}`)
+  if (!res.ok) throw new Error(`replay structures: ${res.status}`)
+  return parseStructures(await res.text())
+}

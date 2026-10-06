@@ -225,11 +225,11 @@ func (s *Sim) refreshResources() {
 // it carries something to analyse, and home when its hands are full.
 func (s *Sim) resourceAt(c *Creature, i int, hasTool bool) float64 {
 	if st := s.structAt[i]; st != nil {
-		if c.sample && st.kind.Tier > 0 || st.ID == c.HouseID && c.Inventory.count() >= invCapacity/2 {
+		if c.Sample && st.kind.Tier > 0 || st.ID == c.HouseID && c.Inventory.count() >= invCapacity/2 {
 			return 1
 		}
 	}
-	best := float32(0)
+	best, appeal := float32(0), s.appeal(c)
 	for _, idx := range s.tileItems[i*tileSlots : (i+1)*tileSlots] {
 		if idx == 0 {
 			break
@@ -240,14 +240,31 @@ func (s *Sim) resourceAt(c *Creature, i int, hasTool bool) float64 {
 			}
 			idx &^= tileToolBit
 		}
-		best = max(best, c.wantVec[idx])
+		best = max(best, appeal[idx])
 	}
 	return float64(best)
 }
 
-// updateWantVec turns the creature's wants into the per-item appeal its
-// senses use.
+// appeal is the per-item appeal the senses use, indexed like tileItems. It
+// is not saved: a restored creature that acts on its saved decision before
+// it next senses rebuilds it from its saved wants.
+func (s *Sim) appeal(c *Creature) []float32 {
+	if c.wantVec == nil {
+		s.fillWantVec(c)
+	}
+	return c.wantVec
+}
+
+// updateWantVec turns the creature's wants into the appeal its senses use.
 func (s *Sim) updateWantVec(c *Creature) {
+	s.fillWantVec(c)
+	c.Sample = false
+	for _, id := range s.samples() {
+		c.Sample = c.Sample || c.Inventory[id] > 0
+	}
+}
+
+func (s *Sim) fillWantVec(c *Creature) {
 	if len(c.wantVec) != len(s.cat.itemIDs) {
 		c.wantVec = make([]float32, len(s.cat.itemIDs))
 	}
@@ -256,10 +273,6 @@ func (s *Sim) updateWantVec(c *Creature) {
 		if idx > 0 {
 			c.wantVec[idx] = float32(clamp(0.5*want[id]+0.3*s.interest[id], 0, 1))
 		}
-	}
-	c.sample = false
-	for _, id := range s.samples() {
-		c.sample = c.sample || c.Inventory[id] > 0
 	}
 }
 
@@ -364,15 +377,20 @@ func (s *Sim) canBuildWith(c *Creature, cost map[chem.ItemID]int) bool {
 	return true
 }
 
-// receive puts items in hand, overflowing into home storage when at home.
+// receive puts items in hand, overflowing into home storage when at home;
+// what neither takes is left (see leftOver).
 func (s *Sim) receive(c *Creature, id chem.ItemID, n int) {
 	room := invCapacity - c.Inventory.count()
 	inHand := min(n, room)
 	c.Inventory.add(id, inHand)
-	if rest := n - inHand; rest > 0 && s.atHome(c) {
+	rest := n - inHand
+	if rest > 0 && s.atHome(c) {
 		h := s.houseOf(c)
-		h.Storage.add(id, min(rest, h.kind.Storage-h.Storage.count()))
+		stored := max(0, min(rest, h.kind.Storage-h.Storage.count()))
+		h.Storage.add(id, stored)
+		rest -= stored
 	}
+	s.leftOver(c, id, rest)
 }
 
 func (s *Sim) toolBonus(c *Creature) float64 {
@@ -411,8 +429,10 @@ func (s *Sim) keepHouse(c *Creature) {
 			if food <= foodReserve {
 				continue
 			}
-		case id == tool, id == weapon:
+		case id == tool, id == weapon, id == raftItem:
 			keep = 1
+		case id == waterTube:
+			keep = maxTubes
 		}
 		surplus := c.Inventory[id] - keep
 		if s.cat.isFood(id) && id != seed {
@@ -494,9 +514,9 @@ func (s *Sim) gather(c *Creature) bool {
 		return false
 	}
 
-	rate := gatherRate * math.Max(1, s.toolBonus(c))
+	rate := gatherRate * math.Max(1, s.toolBonus(c)) * s.childSkill(c) * s.vigor(c)
 	switch c.GatherWhat {
-	case "harvest":
+	case "harvest", "bawon":
 		rate = harvestRate
 		c.action = ActHarvest
 	case "fish":
@@ -528,6 +548,12 @@ func (s *Sim) gather(c *Creature) bool {
 			c.Inventory.add("ikan", 1)
 		}
 		return true
+	case "bawon":
+		s.bawonHarvest(c, tile)
+		return true
+	case "carcass":
+		s.cutMeat(c, tile)
+		return true
 	}
 	if s.geo.Take(pick.X, pick.Y, pick.Item, 1) < 1 {
 		return true
@@ -558,6 +584,10 @@ func (s *Sim) chooseGather(c *Creature, x, y int, foodCost float32) (*chem.Sourc
 		}
 		if t, ok := s.fishInReach(x, y); ok && 0.55+wants[chem.Food]*3 > bestScore {
 			bestScore, what, tile = 0.55+wants[chem.Food]*3, "fish", t
+		}
+		// Meat lying in reach, or another household's harvest to join.
+		if w, score, t := s.shareGather(c, x, y, hungry, wants); score > bestScore {
+			bestScore, what, tile = score, w, t
 		}
 	}
 	var pick *chem.Source
@@ -681,6 +711,12 @@ func (s *Sim) wants(c *Creature) map[chem.ItemID]float64 {
 	}
 	for _, id := range s.samples() {
 		w[id] += 0.7
+	}
+	if v := s.raftWant(c); v > 0 {
+		w[raftItem] += v
+	}
+	if v := s.tubeWant(c); v > 0 {
+		w[waterTube] += v
 	}
 	return w
 }
@@ -997,7 +1033,9 @@ func (s *Sim) nextStation(c *Creature) (chem.StructureKind, bool) {
 func (s *Sim) amenityNear(h *Structure, k chem.StructureKind) bool {
 	x, y := float64(h.X)+0.5, float64(h.Y)+0.5
 	if k.Well {
-		if i, ok := s.terrain.index(h.X, h.Y); ok && s.terrain.nearFresh[i] {
+		// A house by a river that still runs needs no well; once the river
+		// fails in the dry season, it does.
+		if i, ok := s.terrain.index(h.X, h.Y); ok && s.terrain.nearFresh[i] && s.riverRunsBy(i) {
 			return true
 		}
 	}

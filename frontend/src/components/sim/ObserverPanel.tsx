@@ -5,12 +5,16 @@ import { CivilizationView } from './CivilizationView'
 import { Demography } from './Demography'
 import { Ecology } from './Ecology'
 import { EventLog } from './EventLog'
+import { Health } from './Health'
 import { Inspector } from './Inspector'
 import { PeriodicTable } from './PeriodicTable'
 import { PopulationChart } from './PopulationChart'
+import { NeuronView } from './NeuronView'
 import { PopulationStats } from './PopulationStats'
+import { Villages } from './Villages'
 import { DEFAULT_SECONDS_PER_YEAR, SecondsPerYearContext } from './format'
 import './sim.css'
+import { InbreedingStats } from './InbreedingStats'
 
 export type ObserverPanelProps = {
   mapId: string
@@ -18,15 +22,20 @@ export type ObserverPanelProps = {
   following: boolean
   onSelect: (id: number | null) => void
   onFollow: (follow: boolean) => void
+  /** Points the camera at a spot (a village), `across` tiles wide. */
+  onLocate?: (view: { x: number; y: number; across: number }) => void
 }
 
-type Tab = 'population' | 'ecology' | 'civilization' | 'elements'
+type Tab = 'population' | 'villages' | 'health' | 'ecology' | 'civilization' | 'elements' | 'neuron'
 
 const TABS: { id: Tab; label: string }[] = [
   { id: 'population', label: 'Populasi' },
+  { id: 'villages', label: '🏘 Desa' },
+  { id: 'health', label: '🩺 Kesehatan' },
   { id: 'ecology', label: 'Ekologi' },
   { id: 'civilization', label: 'Peradaban' },
   { id: 'elements', label: 'Unsur' },
+  { id: 'neuron', label: '🧠 Neuron' },
 ]
 
 const HEIGHT_KEY = 'miniv2.dock.height'
@@ -47,7 +56,7 @@ function storedHeight() {
  * the full width: the observer watches, never steers. The clock and the time
  * control live in the toolbar (SimStatus).
  */
-export function ObserverPanel({ mapId, selectedId, following, onSelect, onFollow }: ObserverPanelProps) {
+export function ObserverPanel({ mapId, selectedId, following, onSelect, onFollow, onLocate }: ObserverPanelProps) {
   const [tab, setTab] = useState<Tab>('population')
   const [height, setHeight] = useState(storedHeight)
   const heightRef = useRef(height)
@@ -129,8 +138,7 @@ export function ObserverPanel({ mapId, selectedId, following, onSelect, onFollow
           </div>
           {selectedId === null && (
             <span className="dock-hint small muted">
-              Klik makhluk atau rumah di peta untuk melihat otak dan keluarganya. Mereka memutuskan sendiri — kamu hanya
-              pengamat.
+              Klik makhluk atau rumah di peta untuk melihat otak dan keluarganya. Mereka memutuskan sendiri — kamu hanya pengamat.
             </span>
           )}
           <button
@@ -154,6 +162,7 @@ export function ObserverPanel({ mapId, selectedId, following, onSelect, onFollow
                   following={following}
                   onSelect={onSelect}
                   onFollow={onFollow}
+                  onShowBrain={tab === 'neuron' ? undefined : () => setTab('neuron')}
                 />
               </div>
             )}
@@ -163,9 +172,7 @@ export function ObserverPanel({ mapId, selectedId, following, onSelect, onFollow
               id={`obs-panel-${tab}`}
               aria-labelledby={`obs-tab-${tab}`}
             >
-              {info.isError && !data && (
-                <p className="obs-error small">Simulasi belum tersedia: {info.error.message}</p>
-              )}
+              {info.isError && !data && <p className="obs-error small">Simulasi belum tersedia: {info.error.message}</p>}
               {tab === 'population' &&
                 (data ? (
                   <>
@@ -173,11 +180,15 @@ export function ObserverPanel({ mapId, selectedId, following, onSelect, onFollow
                     <PopulationChart history={data.history ?? []} />
                     <EventLog events={data.events ?? []} onSelect={onSelect} />
                     <Demography mapId={mapId} />
+                    <InbreedingStats mapId={mapId} />
                   </>
                 ) : (
                   info.isPending && <p className="small muted">Menghubungkan ke simulasi…</p>
                 ))}
+              {tab === 'villages' && <Villages mapId={mapId} info={data} onSelect={onSelect} onLocate={onLocate} />}
+              {tab === 'health' && <Health mapId={mapId} />}
               {tab === 'ecology' && <Ecology mapId={mapId} />}
+              {tab === 'neuron' && <NeuronView mapId={mapId} selectedId={selectedId} onSelect={onSelect} />}
               {tab === 'civilization' && (
                 <CivilizationView
                   knowledge={knowledge.data}

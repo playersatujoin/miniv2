@@ -28,6 +28,19 @@ const (
 	flagTeaching  = 16384
 	flagPlanting  = 32768
 	flagHunting   = 65536
+	flagIll       = 131072
+	// Engine adaptation II. flagHurt: struck in the last moments. The body
+	// on land and water (locomotion.go), exchanges (interact.go) and
+	// leadership (village.go) set the rest.
+	flagHurt     = 1 << 18
+	flagWading   = 1 << 19
+	flagSwimming = 1 << 20
+	flagRafting  = 1 << 21
+	flagClimbing = 1 << 22
+	flagFallen   = 1 << 23
+	flagTalking  = 1 << 24
+	flagTrading  = 1 << 25
+	flagLeader   = 1 << 26
 )
 
 var fxFlags = [numFX]int{fxAttack: flagAttacking, fxSteal: flagStealing, fxGive: flagGiving,
@@ -51,7 +64,7 @@ type Info struct {
 	CapacityHits       int            `json:"capacityHits"` // conceptions the ceiling stopped (0 in a normal world)
 	Births             int            `json:"births"`
 	Deaths             int            `json:"deaths"`
-	DeathsByCause      deathCounts    `json:"deathsByCause"`
+	DeathsByCause      DeathCounts    `json:"deathsByCause"`
 	MaxGeneration      int            `json:"maxGeneration"`
 	AvgGeneration      float64        `json:"avgGeneration"`
 	ElementsDiscovered int            `json:"elementsDiscovered"`
@@ -73,6 +86,21 @@ type Info struct {
 	Plots              int            `json:"plots"`
 	History            []HistoryPoint `json:"history"`
 	Events             []Event        `json:"events"`
+	Engine             EngineInfo     `json:"engine"`
+}
+
+// EngineInfo summarises the engine adaptation II systems.
+type EngineInfo struct {
+	Stimuli  StimuliInfo  `json:"stimuli"`
+	Exchange ExchangeInfo `json:"exchange"`
+	Fire     FireInfo     `json:"fire"`
+	Water    WaterInfo    `json:"water"`
+	Villages VillageInfo  `json:"villages"`
+	Sharing  SharingInfo  `json:"sharing"`
+}
+
+func (s *Sim) engineInfo() EngineInfo {
+	return EngineInfo{Stimuli: s.stimuliInfo(), Exchange: s.exchangeInfo(), Fire: s.fireInfo(), Water: s.waterInfo(), Villages: s.villageInfo(), Sharing: s.sharingInfo()}
 }
 
 func (s *Sim) Info() Info {
@@ -120,6 +148,7 @@ func (s *Sim) Info() Info {
 		Plots:              len(s.eco.Plots()),
 		History:            append([]HistoryPoint{}, s.history...), // never null in JSON
 		Events:             append([]Event{}, s.events...),
+		Engine:             s.engineInfo(),
 	}
 }
 
@@ -145,6 +174,24 @@ type BrainView struct {
 	WRec         [][]float64 `json:"wRec"`
 	WOut         [][]float64 `json:"wOut"`
 	BOut         []float64   `json:"bOut"`
+	// Each inherited neuron's bias and time constant (ticks).
+	Bias []float64 `json:"bias"`
+	Tau  []float64 `json:"tau"`
+	// Neurons grown during this life, in the order they grew: when (age in
+	// years), how active and how used they are, and their weights from the
+	// senses, from the inherited neurons and to the outputs (one row each).
+	Grown        int         `json:"grown"`
+	GrownBorn    []float64   `json:"grownBorn"`
+	GrownAct     []float64   `json:"grownAct"`
+	GrownUse     []float64   `json:"grownUse"`
+	GrownTau     []float64   `json:"grownTau"`
+	GrownIn      [][]float64 `json:"grownIn"`
+	GrownRec     [][]float64 `json:"grownRec"`
+	GrownOut     [][]float64 `json:"grownOut"`
+	Neurogenesis float64     `json:"neurogenesis"`
+	Novelty      float64     `json:"novelty"`
+	Grew         int         `json:"grew"`
+	Pruned       int         `json:"pruned"`
 }
 
 type StackView struct {
@@ -170,37 +217,134 @@ type HouseView struct {
 }
 
 type CreatureDetail struct {
-	SecondsPerYear float64     `json:"secondsPerYear"`
-	ID             int64       `json:"id"`
-	Name           string      `json:"name"`
-	Sex            string      `json:"sex"`
-	Generation     int         `json:"generation"`
-	Mother         *Ref        `json:"mother"`
-	Father         *Ref        `json:"father"`
-	Spouse         *Ref        `json:"spouse"`
-	BornAt         float64     `json:"bornAt"`
-	Age            float64     `json:"age"`
-	Lifespan       float64     `json:"lifespan"`
-	Adult          bool        `json:"adult"`
-	Energy         float64     `json:"energy"`
-	Hydration      float64     `json:"hydration"`
-	Health         float64     `json:"health"`
-	Reputation     float64     `json:"reputation"`
-	Role           string      `json:"role"`
-	House          *HouseView  `json:"house"`
-	Inventory      []StackView `json:"inventory"`
-	Deeds          Deeds       `json:"deeds"`
-	Skills         []SkillView `json:"skills"`
-	Teacher        *Ref        `json:"teacher"`
-	Taught         int         `json:"taught"`
-	Pregnant       bool        `json:"pregnant"`
-	Gestation      float64     `json:"gestation"`
-	Children       int         `json:"children"`
-	X              float64     `json:"x"`
-	Y              float64     `json:"y"`
-	Action         Action      `json:"action"`
-	Traits         TraitsView  `json:"traits"`
-	Brain          BrainView   `json:"brain"`
+	SecondsPerYear float64          `json:"secondsPerYear"`
+	ID             int64            `json:"id"`
+	Name           string           `json:"name"`
+	Sex            string           `json:"sex"`
+	Generation     int              `json:"generation"`
+	Mother         *Ref             `json:"mother"`
+	Father         *Ref             `json:"father"`
+	Spouse         *Ref             `json:"spouse"`
+	BornAt         float64          `json:"bornAt"`
+	Age            float64          `json:"age"`
+	Lifespan       float64          `json:"lifespan"`
+	Adult          bool             `json:"adult"`
+	Energy         float64          `json:"energy"`
+	Hydration      float64          `json:"hydration"`
+	Health         float64          `json:"health"`
+	Reputation     float64          `json:"reputation"`
+	Role           string           `json:"role"`
+	House          *HouseView       `json:"house"`
+	Inventory      []StackView      `json:"inventory"`
+	Deeds          Deeds            `json:"deeds"`
+	Skills         []SkillView      `json:"skills"`
+	Teacher        *Ref             `json:"teacher"`
+	Taught         int              `json:"taught"`
+	Pregnant       bool             `json:"pregnant"`
+	Gestation      float64          `json:"gestation"`
+	Children       int              `json:"children"`
+	X              float64          `json:"x"`
+	Y              float64          `json:"y"`
+	Action         Action           `json:"action"`
+	Traits         TraitsView       `json:"traits"`
+	Brain          BrainView        `json:"brain"`
+	Body           BodyView         `json:"body"`
+	Relations      []Relation       `json:"relations"`
+	Memories       []PerceivedEvent `json:"memories"`
+	Execution      *ExecutionView   `json:"execution"`
+	// Engine adaptation II.
+	Mood       *MoodView     `json:"mood"`
+	Exchange   *ExchangeView `json:"exchange"`
+	Locomotion string        `json:"locomotion"`
+	Village    *Ref          `json:"village"`
+	Leader     bool          `json:"leader"`
+	// Save v12 (forage.go): food places they remember and water in their tubes.
+	FoodPlaces []FoodPlace `json:"foodPlaces"`
+	Water      float64     `json:"waterCarried"`
+	WaterRoom  float64     `json:"waterRoom"`
+	// Fase 3c: inbreeding, recessive variants carried and disorders.
+	Genetics *GeneticsView `json:"genetics"`
+}
+
+// BodyView is a person's body and health (Fase 3).
+type BodyView struct {
+	// Stage of life: bayi, anak, remaja, dewasa or lansia.
+	Stage string `json:"stage"`
+	// Ill is the illness they have now (nil when well).
+	Ill *IllView `json:"ill"`
+	// Immunity to each disease, 0–1, by disease key.
+	Immunity map[string]float64 `json:"immunity"`
+	// Carrier: still carrying malaria parasites without being ill.
+	Carrier bool    `json:"carrier"`
+	Worms   float64 `json:"worms"` // worm load, 0–1
+	// Gene is the inherited strength of their immune defences (about 1).
+	Gene float64 `json:"gene"`
+	// Women: nursing a baby, the age (years) their fertility ends, and a
+	// month's chance of conceiving now.
+	Nursing   bool    `json:"nursing"`
+	Menopause float64 `json:"menopause"`
+	Fertility float64 `json:"fertility"`
+	// Carer: who looks after a young child (nil otherwise).
+	Carer *Ref    `json:"carer"`
+	Vigor float64 `json:"vigor"` // strength left with age, 0.5–1
+	// Nutrition beyond calories (Fase 3d); nil when switched off.
+	Nutrition *NutritionView `json:"nutrition,omitempty"`
+}
+
+// IllView is an illness as the inspector shows it.
+type IllView struct {
+	Disease  string  `json:"disease"`
+	Name     string  `json:"name"`
+	Progress float64 `json:"progress"` // 0 just begun … 1 over
+	// Danger is how much of what health they have left the rest of the
+	// illness would take if nothing eases it (≥ 1: it will kill them).
+	Danger float64 `json:"danger"`
+}
+
+// stage names the stage of life of someone aged age years.
+func stage(age float64) string {
+	switch {
+	case age < 2:
+		return "bayi"
+	case age < followAge:
+		return "anak"
+	case age < 15:
+		return "remaja"
+	case age < 55:
+		return "dewasa"
+	}
+	return "lansia"
+}
+
+func (s *Sim) bodyView(c *Creature) BodyView {
+	v := BodyView{
+		Stage:    stage(s.ageYears(c)),
+		Immunity: map[string]float64{},
+		Carrier:  c.Carrier > 0,
+		Worms:    r3(c.Worms),
+		Gene:     r3(c.Genome.Traits.Immunity),
+		Vigor:    r3(s.vigor(c)),
+	}
+	v.Nutrition = s.nutritionView(c)
+	for d := range numDiseases {
+		v.Immunity[diseaseKey[d]] = r3(c.immunity(d))
+	}
+	if ill := c.Ill; ill != nil {
+		left := ill.Severity * ill.Left / ill.Length
+		v.Ill = &IllView{Disease: diseaseKey[ill.Disease], Name: diseaseName[ill.Disease],
+			Progress: r3(1 - ill.Left/ill.Length), Danger: r3(left / math.Max(c.Health, 0.01))}
+	}
+	if c.Sex == Female {
+		v.Nursing = s.nursing(c)
+		v.Menopause = r3(c.Genome.Traits.Menopause)
+		if s.adult(c) && c.Pregnancy == nil {
+			v.Fertility = r3(s.conceptionChance(c))
+		}
+	}
+	if g := s.guardian(c); g != nil {
+		v.Carer = &Ref{g.ID, g.Name}
+	}
+	return v
 }
 
 func r3(v float64) float64 { return math.Round(v*1000) / 1000 }
@@ -333,6 +477,19 @@ func (s *Sim) Creature(id int64) (CreatureDetail, bool) {
 		X:              r3(c.X),
 		Y:              r3(c.Y),
 		Action:         action,
+		Body:           s.bodyView(c),
+		Relations:      s.relationViews(c),
+		Memories:       append([]PerceivedEvent{}, c.Memories...),
+		Execution:      s.executionView(c),
+		Mood:           s.moodView(c),
+		Exchange:       s.exchangeView(c),
+		Locomotion:     s.locomotionName(c),
+		Village:        s.villageRef(c),
+		Leader:         s.isLeader(c),
+		FoodPlaces:     append([]FoodPlace{}, c.FoodPlaces...),
+		Water:          r3(c.WaterCarried),
+		WaterRoom:      r3(s.waterRoom(c)),
+		Genetics:       s.geneticsView(c),
 		Traits: TraitsView{
 			Hue:          r3(tr.Hue),
 			Size:         r3(tr.Size),
@@ -354,6 +511,20 @@ func (s *Sim) Creature(id int64) (CreatureDetail, bool) {
 			WRec:         matrix(g.WRec, H),
 			WOut:         matrix(c.Mind.wOut, NumOutputs),
 			BOut:         round3(g.BOut),
+			Bias:         round3(g.Bias),
+			Tau:          round3(g.Tau),
+			Grown:        c.Mind.Grown,
+			GrownBorn:    round3(c.Mind.GBorn),
+			GrownAct:     round3(c.Mind.GAct),
+			GrownUse:     round3(c.Mind.GUse),
+			GrownTau:     round3(c.Mind.GTau),
+			GrownIn:      matrix(c.Mind.GIn, NumInputs),
+			GrownRec:     matrix(c.Mind.GRec, H),
+			GrownOut:     matrix(c.Mind.GOut, NumOutputs),
+			Neurogenesis: r3(tr.Neurogenesis),
+			Novelty:      r3(c.Mind.Novelty),
+			Grew:         c.Mind.Grew,
+			Pruned:       c.Mind.Pruned,
 		},
 	}, true
 }
@@ -493,24 +664,44 @@ func (s *Sim) flags(c *Creature) int {
 	if c.Inventory.count() >= invCapacity/2 {
 		f |= flagCarrying
 	}
-	return f
+	if c.Ill != nil {
+		f |= flagIll
+	}
+	if c.Hurt > 0 {
+		f |= flagHurt
+	}
+	if s.isLeader(c) {
+		f |= flagLeader
+	}
+	return f | s.locomotionFlags(c) | s.exchangeFlags(c)
 }
 
 // encodeFrame writes the compact stream frame by hand: it runs 10 times a
 // second for every world, so it avoids reflection.
 func (s *Sim) encodeFrame() []byte {
+	return s.encodeViewFrame(nil)
+}
+
+func (s *Sim) encodeViewFrame(view *Viewport) []byte {
 	b := make([]byte, 0, 96+len(s.creatures)*84+len(s.eco.Animals())*40)
 	b = append(b, `{"t":`...)
 	b = strconv.AppendInt(b, s.tick, 10)
 	b = append(b, `,"s":`...)
 	b = strconv.AppendFloat(b, s.time(), 'f', 2, 64)
 	b = s.appendWeather(b)
-	b = s.appendAnimals(b)
+	b = s.appendViewAnimals(b, view)
+	b = s.appendCorpses(b, view)
+	b = s.appendFires(b, view)
 	b = append(b, `,"c":[`...)
-	for i, c := range s.creatures {
-		if i > 0 {
+	first := true
+	for _, c := range s.creatures {
+		if !view.contains(c.X, c.Y) && c.ID != view.Follow {
+			continue
+		}
+		if !first {
 			b = append(b, ',')
 		}
+		first = false
 		b = append(b, '[')
 		b = strconv.AppendInt(b, c.ID, 10)
 		b = append(b, ',', '"')
@@ -535,6 +726,28 @@ func (s *Sim) encodeFrame() []byte {
 		b = strconv.AppendFloat(b, clamp(c.Health, 0, 1), 'f', 2, 64)
 		b = append(b, ',')
 		b = strconv.AppendInt(b, c.HouseID, 10)
+		b = append(b, ',')
+		b = strconv.AppendFloat(b, s.age(c)/SecondsPerYear, 'f', 2, 64)
+		var gaze *Waypoint
+		if c.Travel != nil {
+			gaze = &c.Travel.Target
+		} else if n := len(c.Memories); n > 0 && s.tick-c.Memories[n-1].Tick < 3*TicksPerSecond {
+			ev := c.Memories[n-1]
+			gaze = &Waypoint{ev.X, ev.Y}
+		}
+		if gaze != nil {
+			b = append(b, ',')
+			b = strconv.AppendFloat(b, gaze.X, 'f', 2, 64)
+			b = append(b, ',')
+			b = strconv.AppendFloat(b, gaze.Y, 'f', 2, 64)
+		} else {
+			b = append(b, `,null,null`...)
+		}
+		mood, strength := s.moodCode(c)
+		b = append(b, ',')
+		b = strconv.AppendInt(b, int64(mood), 10)
+		b = append(b, ',')
+		b = strconv.AppendFloat(b, strength, 'f', 2, 64)
 		b = append(b, ']')
 	}
 	return append(b, "]}"...)
@@ -545,6 +758,10 @@ func (s *Sim) encodeFrame() []byte {
 func (s *Sim) Structures() ([]byte, int64) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	return s.encodeStructures(), s.structVersion
+}
+
+func (s *Sim) encodeStructures() []byte {
 	b := make([]byte, 0, 32+len(s.structures)*48)
 	b = append(b, `{"v":`...)
 	b = strconv.AppendInt(b, s.structVersion, 10)
@@ -573,7 +790,7 @@ func (s *Sim) Structures() ([]byte, int64) {
 		b = strconv.AppendInt(b, int64(st.Hue)%360, 10)
 		b = append(b, ']')
 	}
-	return append(b, "]}"...), s.structVersion
+	return append(b, "]}"...)
 }
 
 // StructureVersion is cheap to poll to see whether Structures changed.

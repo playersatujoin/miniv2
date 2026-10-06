@@ -1,23 +1,18 @@
-import type {
-  DepositItem,
-  DepositModel,
-  GameMap,
-  GeoFeature,
-  MapGeology,
-  Point,
-  RockType,
-  TileDef,
-  TileSet,
-} from '../api/client'
+import type { DepositItem, DepositModel, GameMap, GeoFeature, MapGeology, Point, RockType, TileDef, TileSet } from '../api/client'
 import {
+  WATER,
   ANIMAL_FLAG,
+  DEATH_LABELS,
   FLAG,
   SEX_SYMBOL,
+  type BurntMessage,
+  type CorpseFrame,
   type FieldPlot,
+  type FireFrame,
   type MinedOut,
-  type Sex,
   type SimFrame,
   type StructureFrame,
+  type WaterMessage,
 } from '../sim/protocol'
 import { ANIMAL_HEIGHT, animalLabel, animalScale, drawAnimal } from './fauna'
 import { drawPlotFlat, drawPlotUpright, plotIsUpright } from './fields'
@@ -43,6 +38,8 @@ import {
   drawPit,
   drawFlat,
   drawGround,
+  drawMurk,
+  drawRiverbed,
   drawPlayer,
   drawSpawnFlag,
   drawStump,
@@ -56,7 +53,24 @@ import {
   type SpriteSheet,
 } from './render'
 import { AmbientFx, drawSmoke } from './ambient'
+import {
+  buildScorchMask,
+  charredSprite,
+  corpseAlpha,
+  drawAsh,
+  drawCorpse,
+  drawExchange,
+  drawFireGlow,
+  drawFireSmoke,
+  drawFlames,
+  drawVillageLabels,
+  drawVillageLand,
+  firesByRow,
+  pairExchanges,
+} from './society'
 import { WeatherFx } from './weather'
+import { hasServerWind, type WindVector } from './wind'
+import { LiveWorld, type Glide, type LiveAnimal, type LiveCreature } from '../sim/live'
 
 export type Mode = 'play' | 'edit' | 'watch'
 export type Layer = 'ground' | 'objects'
@@ -81,6 +95,13 @@ export type HoverInfo = {
   plot?: FieldPlot
 }
 
+/**
+ * A camera position shared between the 2D and 3D views: the spot looked at (tiles) and the tiles
+ * across the view there, plus the 3D camera's tilt from straight down and heading (radians; the
+ * 2D map ignores them, and remembers them for the next time the 3D view opens).
+ */
+export type MapView = { x: number; y: number; across: number; phi?: number; theta?: number }
+
 export type EngineEvents = {
   onDirtyChange?: (dirty: boolean) => void
   onHistoryChange?: (canUndo: boolean, canRedo: boolean) => void
@@ -104,84 +125,18 @@ type View = { w: number; h: number; scale: number; left: number; top: number }
 type Change = { i: number; layer: Layer; before: number; after: number }
 type Stroke = { changes: Change[]; spawn?: { before: Point; after: Point } }
 
-/** Something streamed that moves: interpolated from (px, py, ph) to (x, y, heading) between frames. */
-type Glide = {
-  px: number
-  py: number
-  ph: number
-  x: number
-  y: number
-  heading: number
-  /** Interpolated render state. */
-  rx: number
-  ry: number
-  rh: number
-  step: number
-  moving: boolean
-}
+/** A streamed creature or animal, shared with the 3D view (see LiveWorld). */
+type Creature = LiveCreature
+type Animal = LiveAnimal
 
-/** A streamed creature. */
-type Creature = Glide & {
-  id: number
-  name: string
-  sex: Sex
-  hue: number
-  size: number
-  flags: number
-  energy: number
-  health: number
-  houseId: number
-}
-
-/** A streamed wild or domestic animal. */
-type Animal = Glide & { id: number; species: number; flags: number }
-
-/** A glide standing still at (x, y). */
-const still = (x: number, y: number, heading: number): Glide => ({
-  px: x,
-  py: y,
-  ph: heading,
-  x,
-  y,
-  heading,
-  rx: x,
-  ry: y,
-  rh: heading,
-  step: 0,
-  moving: false,
-})
-
-/** Points a glide at its next position, starting from where it is drawn right now. */
-function retarget(g: Glide, x: number, y: number, heading: number) {
-  g.px = g.rx
-  g.py = g.ry
-  g.ph = g.rh
-  g.x = x
-  g.y = y
-  g.heading = heading
-  if (Math.hypot(g.x - g.px, g.y - g.py) > SNAP_DISTANCE) {
-    g.px = g.rx = g.x
-    g.py = g.ry = g.y
-  }
-}
-
-/** Moves a glide fraction t of the way along its segment; `stride` is leg cycles per tile walked. */
-function glide(g: Glide, t: number, dt: number, stride: number) {
-  const rx = g.px + (g.x - g.px) * t
-  const ry = g.py + (g.y - g.py) * t
-  // Turn the short way round.
-  let dh = (g.heading - g.ph) % (Math.PI * 2)
-  if (dh > Math.PI) dh -= Math.PI * 2
-  else if (dh < -Math.PI) dh += Math.PI * 2
-  g.rh = g.ph + dh * t
-
-  const moved = Math.hypot(rx - g.rx, ry - g.ry)
-  g.moving = dt > 0 && moved / dt > 0.15
-  g.step += moved * stride
-  g.rx = rx
-  g.ry = ry
-}
-
+/** Leg cycles per tile walked by people. */
+const PERSON_STRIDE = 1.4
+const NOBODY = new Map<number, Creature>()
+const WATER_FULL = WATER.flowing
+const WATER_POOLS = WATER.pools
+/** Germs (0–255) from which water looks murky. */
+const FOUL_SHOWN = 24
+const NO_ANIMALS = new Map<number, Animal>()
 /** Leg cycles per tile walked, by species: chickens patter, buffalo stride. */
 const ANIMAL_STRIDE = [1.1, 1.5, 3.2, 0.9, 0.9]
 
@@ -190,10 +145,29 @@ const MAX_CHUNKS = 96
 const OVERLAY_RES = 4 // geology overlay pixels per tile (room for unit boundaries)
 const ZOOMS = [0.5, 0.75, 1, 1.5, 2, 3]
 
+/** The zoom level that shows about `across` tiles on a view `width` CSS pixels wide. */
+function nearestZoom(across: number, width: number) {
+  const want = (width || 1) / (TILE * across)
+  let best = 0
+  ZOOMS.forEach((z, i) => {
+    if (Math.abs(Math.log(z / want)) < Math.abs(Math.log(ZOOMS[best] / want))) best = i
+  })
+  return best
+}
+
+/** How many tiles across the 2D map will actually show for a requested width (it only has a few zoom levels). */
+export function snapAcross(across: number, width: number) {
+  return (width || 1) / (TILE * ZOOMS[nearestZoom(across, width)])
+}
+
 /** How much each kind of plant bends in the wind (trees most). */
 const SWAY: Record<string, number> = { tree: 1, pine: 0.7, bush: 0.45 }
 /** Where smoke leaves a structure sprite (sprite pixels): the hearth by house level, the furnace's chimney. */
-const HEARTH_SMOKE: Record<number, [number, number]> = { 1: [TILE + 5, TILE * 3 - 35], 2: [TILE + 9, TILE * 3 - 44], 3: [TILE + 11, TILE * 3 - 54] }
+const HEARTH_SMOKE: Record<number, [number, number]> = {
+  1: [TILE + 5, TILE * 3 - 35],
+  2: [TILE + 9, TILE * 3 - 44],
+  3: [TILE + 11, TILE * 3 - 54],
+}
 const FURNACE_SMOKE: [number, number] = [TILE + 8, TILE * 3 - 40]
 const WALK_SPEED = 5 // tiles per second
 const RUN_SPEED = 8.5
@@ -204,8 +178,11 @@ const EPS = 1e-4
 const MAX_FILL = 20_000
 const MAX_UNDO = 200
 const BULK_REDRAW = 64 // above this many changed tiles, drop the cache instead of patching it
-const SNAP_DISTANCE = 10 // tiles; creatures that jump further between frames are teleported, not slid
 const DRAG_THRESHOLD = 4 // px before a watch-mode click becomes a pan
+/** From this zoom small per-person details show (a leader's pennant, moods on faces). */
+const DETAIL_ZOOM = 1.4
+/** Scorched tiles this burnt (0–1) show their trees blackened. */
+const CHARRED_FROM = 0.35
 
 /** N, E, S, W. */
 const SIDES = [
@@ -231,6 +208,16 @@ function isTyping(target: EventTarget | null) {
 function hexToRgb(hex: string): [number, number, number] {
   const n = parseInt(hex.slice(1, 7), 16)
   return [n >> 16, (n >> 8) & 255, n & 255]
+}
+
+/** What a name label adds for someone in the water, on a slope, or down: " · berenang". */
+function motionNote(flags: number) {
+  if (flags & FLAG.fallen) return ' · terjatuh'
+  if (flags & FLAG.swimming) return ' · berenang'
+  if (flags & FLAG.rafting) return ' · di atas rakit'
+  if (flags & FLAG.climbing) return ' · memanjat'
+  if (flags & FLAG.wading) return ' · mengarungi air'
+  return ''
 }
 
 export class GameEngine {
@@ -272,6 +259,8 @@ export class GameEngine {
   private player = { x: 0, y: 0, facing: { x: 0, y: 1 } as Facing, step: 0, moving: false }
   private placed = false
   private camera = { x: 0, y: 0, zoomIndex: 3, zoom: ZOOMS[3] }
+  /** The water cycle's state and level per tile (null: everything as painted). */
+  private water: { state: Uint8Array; level: Uint8Array; foul: Uint8Array } | null = null
   /** While a zoom eases in: the screen point (CSS px) and the tile under it to keep together. */
   private zoomAnchor: { sx: number; sy: number; x: number; y: number } | null = null
   private ambient = new AmbientFx()
@@ -289,8 +278,8 @@ export class GameEngine {
   private savedMarker: Stroke | null = null
   private lastDirty = false
 
-  private creatures = new Map<number, Creature>()
-  private animals = new Map<number, Animal>()
+  /** People and animals as streamed and smoothed; the page shares one copy with the 3D view. */
+  private live = new LiveWorld()
   private hoverAnimal: Animal | null = null
   /** Planted plots by tile index. */
   private plots = new Map<number, FieldPlot>()
@@ -306,12 +295,17 @@ export class GameEngine {
   private structureByTile = new Map<number, StructureFrame>()
   private structures: StructureFrame[] = []
   private hoverStructure: StructureFrame | null = null
-  private frameAt = 0
-  private frameInterval = 100
   private selectedId: number | null = null
+  /** Watching: the camera was put somewhere on purpose (handed over, restored, following, moved). */
+  private aimed = false
   private following = false
   private hoverCreature: Creature | null = null
+  private hoverCorpse: CorpseFrame | null = null
   private press: { sx: number; sy: number; cx: number; cy: number } | null = null
+  /** Scorched land: the mask drawn over it and how burnt each tile is, rebuilt when its version changes. */
+  private scorch: { from: BurntMessage; mask: HTMLCanvasElement; level: Map<number, number> } | null = null
+  /** Partners talking or trading in view this frame (their glyph is drawn between them). */
+  private paired = new Set<number>()
 
   private hoverKey = ''
   private playerTileKey = ''
@@ -468,60 +462,99 @@ export class GameEngine {
     this.press = null
     this.keys.clear()
     if (mode === 'play' && this.boxBlocked(this.player.x, this.player.y)) this.respawn()
-    // Stale creatures would slide across the map when the stream resumes.
+    // Only watching shows the living world (the page clears it when the stream stops).
     if (mode !== 'watch') {
-      this.creatures.clear()
-      this.animals.clear()
-      this.frameAt = 0
       this.hoverCreature = null
       this.hoverAnimal = null
       this.setStructures([])
       this.setFields([])
+      this.setWater(null) // editing and playing show the rivers as painted
       this.weather.reset()
     }
     this.canvas.style.cursor = mode === 'edit' ? 'crosshair' : 'default'
   }
 
-  /** Feeds the latest simulation frame; creatures and animals glide towards it until the next one. */
-  setCreatureFrame(frame: SimFrame) {
-    const now = performance.now()
-    if (this.frameAt) {
-      const gap = Math.min(250, Math.max(50, now - this.frameAt))
-      this.frameInterval = this.frameInterval * 0.8 + gap * 0.2
-    }
-    this.frameAt = now
+  /** Draws people and animals from this shared, smoothed copy of the stream (the page feeds it). */
+  setLive(live: LiveWorld) {
+    this.live = live
+  }
 
-    const next = new Map<number, Creature>()
-    for (const f of frame.creatures) {
-      const c = this.creatures.get(f.id)
-      const cur: Creature = c ?? { ...f, ...still(f.x, f.y, f.heading) }
-      cur.name = f.name
-      cur.hue = f.hue
-      cur.size = f.size
-      cur.flags = f.flags
-      cur.energy = f.energy
-      cur.health = f.health
-      cur.houseId = f.houseId
-      retarget(cur, f.x, f.y, f.heading)
-      next.set(f.id, cur)
+  /** The rivers' and lakes' water from the stream: repaints the tiles whose look changed. */
+  setWater(msg: WaterMessage | null) {
+    const n = this.width * this.height
+    const before = this.water
+    const next = { state: new Uint8Array(n).fill(WATER_FULL), level: new Uint8Array(n).fill(255), foul: new Uint8Array(n) }
+    if (msg) {
+      msg.tiles.forEach((t, k) => {
+        if (t >= 0 && t < n) {
+          next.state[t] = msg.state[k]
+          next.level[t] = msg.level[k]
+          next.foul[t] = msg.foul?.[k] ?? 0
+        }
+      })
     }
-    this.creatures = next
-    if (this.hoverCreature && !next.has(this.hoverCreature.id)) this.hoverCreature = null
-    if (this.selectedId !== null && !next.has(this.selectedId)) this.stopFollow()
+    this.water = msg ? next : null
+    // Only a different picture is worth repainting: the state, the level or the murk in coarse steps.
+    type W = { state: Uint8Array; level: Uint8Array; foul: Uint8Array }
+    const look = (w: W | null, i: number) =>
+      w ? (w.state[i] << 8) | ((w.level[i] >> 5) << 4) | (w.foul[i] >> 5) : (WATER_FULL << 8) | (7 << 4)
+    const tiles = msg ? msg.tiles : before ? Int32Array.from(before.state.keys()) : new Int32Array()
+    for (const t of tiles) {
+      if (look(before, t) === look(this.water, t)) continue
+      this.repaintTile(t % this.width, Math.floor(t / this.width))
+    }
+  }
 
-    const herd = new Map<number, Animal>()
-    for (const f of frame.animals) {
-      const a = this.animals.get(f.id)
-      const cur: Animal = a ?? { id: f.id, species: f.species, flags: f.flags, ...still(f.x, f.y, f.heading) }
-      cur.species = f.species
-      cur.flags = f.flags
-      retarget(cur, f.x, f.y, f.heading)
-      herd.set(f.id, cur)
-    }
-    this.animals = herd
-    if (this.hoverAnimal && !herd.has(this.hoverAnimal.id)) this.hoverAnimal = null
+  /** How a water tile shows now, or null when it looks as painted (full and clean, or not watching). */
+  private waterShown(i: number): { state: number; level: number; foul: number } | null {
+    const w = this.water
+    if (!w || this.mode !== 'watch') return null
+    const state = w.state[i]
+    const level = w.level[i]
+    const foul = w.foul[i]
+    if (state === WATER_FULL && level >= 224 && foul < FOUL_SHOWN) return null
+    return { state, level, foul }
+  }
+
+  /** Which neighbours (N=1, E=2, S=4, W=8) of a tile hold water now. */
+  private wetArms(tx: number, ty: number) {
+    let arms = 0
+    ;[
+      [0, -1],
+      [1, 0],
+      [0, 1],
+      [-1, 0],
+    ].forEach(([dx, dy], k) => {
+      const x = tx + dx
+      const y = ty + dy
+      if (!this.inBounds(x, y) || !isWater(this.keyAt(x, y))) return
+      const i = y * this.width + x
+      if (!this.water || this.water.state[i] >= WATER_POOLS) arms |= 1 << k
+    })
+    return arms
+  }
+
+  /** People and animals are only shown while watching. */
+  private get creatures(): Map<number, Creature> {
+    return this.mode === 'watch' ? this.live.creatures : NOBODY
+  }
+
+  private get animals(): Map<number, Animal> {
+    return this.mode === 'watch' ? this.live.animals : NO_ANIMALS
+  }
+
+  /** A new simulation frame reached the shared LiveWorld: drop what has gone, follow the weather. */
+  onFrame(frame: SimFrame) {
+    const people = this.live.creatures
+    if (this.hoverCreature && !people.has(this.hoverCreature.id)) this.hoverCreature = null
+    if (this.selectedId !== null && !people.has(this.selectedId)) this.stopFollow()
+    if (this.hoverAnimal && !this.live.animals.has(this.hoverAnimal.id)) this.hoverAnimal = null
     this.weather.setWeather(frame.weather, frame.time)
-    if (frame.weather) this.ambient.setWeather(frame.weather.moisture, frame.weather.rain)
+    const w = frame.weather
+    if (w) {
+      const wind = hasServerWind(w) || w.storm ? { dir: w.windDir, strength: w.wind, storm: w.storm } : null
+      this.ambient.setWeather(w.moisture, w.rain, wind)
+    }
   }
 
   /** Replaces the planted plots (sent on connect and whenever they change). */
@@ -623,6 +656,24 @@ export class GameEngine {
     return (this.undoStack.at(-1) ?? null) !== this.savedMarker
   }
 
+  /** Where the camera looks (tiles) and how many tiles fit across the view, to hand over to the 3D view. */
+  getView(): MapView {
+    const v = this.view()
+    return { x: this.camera.x, y: this.camera.y, across: v.w / v.scale }
+  }
+
+  /** Looks at a spot, at the zoom level that shows about as many tiles across. */
+  setView(view: MapView) {
+    this.aimed = true
+    const best = nearestZoom(view.across, this.canvas.clientWidth)
+    this.camera.zoomIndex = best
+    this.camera.zoom = ZOOMS[best]
+    this.zoomAnchor = null
+    this.camera.x = view.x
+    this.camera.y = view.y
+    this.clampCamera()
+  }
+
   snapshot(): MapSnapshot {
     this.endStroke()
     return {
@@ -662,8 +713,7 @@ export class GameEngine {
     return x >= 0 && y >= 0 && x < this.width && y < this.height
   }
 
-  private keyAt: KeyAt = (x, y) =>
-    this.inBounds(x, y) ? (this.groundDefs[this.ground[y * this.width + x]]?.key ?? null) : null
+  private keyAt: KeyAt = (x, y) => (this.inBounds(x, y) ? (this.groundDefs[this.ground[y * this.width + x]]?.key ?? null) : null)
 
   private solidAt(x: number, y: number) {
     if (!this.inBounds(x, y)) return true
@@ -725,17 +775,27 @@ export class GameEngine {
       const dist = ((PAN_SPEED * (running ? 2.5 : 1)) / this.camera.zoom) * dt
       this.camera.x += (ax / len) * dist
       this.camera.y += (ay / len) * dist
+      this.aimed = true
       this.stopFollow()
     }
 
     if (this.camera.zoom !== ZOOMS[this.camera.zoomIndex]) this.settleZoom(1 - Math.exp(-dt * 14))
 
     if (this.mode === 'watch') {
-      this.updateCreatures(dt, now)
+      this.updateCreatures(now)
       this.weather.update(dt)
       this.ambient.update(dt, now / 1000)
       const target = this.selectedId !== null ? this.creatures.get(this.selectedId) : undefined
+      if (!this.aimed && this.creatures.size > 0 && !(this.following && target)) {
+        // Nobody chose where to look yet: start where most of the people are.
+        this.aimed = true
+        const xs = [...this.creatures.values()].map((c) => c.rx).sort((a, b) => a - b)
+        const ys = [...this.creatures.values()].map((c) => c.ry).sort((a, b) => a - b)
+        this.camera.x = xs[xs.length >> 1]
+        this.camera.y = ys[ys.length >> 1]
+      }
       if (this.following && target) {
+        this.aimed = true
         const follow = 1 - Math.exp(-dt * 6)
         this.camera.x += (target.rx - this.camera.x) * follow
         this.camera.y += (target.ry - 0.5 - this.camera.y) * follow
@@ -747,10 +807,8 @@ export class GameEngine {
     if (this.mode === 'watch') this.updateHoverTargets()
   }
 
-  private updateCreatures(dt: number, now: number) {
-    const t = Math.min(1, (now - this.frameAt) / this.frameInterval)
-    for (const c of this.creatures.values()) glide(c, t, dt, 1.4)
-    for (const a of this.animals.values()) glide(a, t, dt, ANIMAL_STRIDE[a.species] ?? 1.2)
+  private updateCreatures(now: number) {
+    this.live.advance(now)
   }
 
   private stopFollow() {
@@ -812,12 +870,33 @@ export class GameEngine {
     return best
   }
 
+  /** A body under a screen point (one still clearly visible). */
+  private corpseAt(sx: number, sy: number): CorpseFrame | null {
+    const p = this.screenToTile(sx, sy)
+    const radius = Math.max(0.5, 9 / this.view().scale)
+    let best: CorpseFrame | null = null
+    let bestDist = radius
+    for (const c of this.live.frame?.corpses ?? []) {
+      if (corpseAlpha(c.seconds) < 0.15) continue
+      const d = Math.hypot(c.x - p.x, c.y - 0.15 - p.y)
+      if (d < bestDist) {
+        best = c
+        bestDist = d
+      }
+    }
+    return best
+  }
+
   private updateHoverTargets() {
     const p = this.pointer && !this.panning ? this.pointer : null
     const c = p ? this.creatureAt(p.sx, p.sy) : null
     const a = p && !c ? this.animalAt(p.sx, p.sy) : null
     const st = p && !c && !a ? this.structureAt(p.sx, p.sy) : null
-    if (c === this.hoverCreature && a === this.hoverAnimal && st === this.hoverStructure) return
+    const body = p && !c && !a && !st ? this.corpseAt(p.sx, p.sy) : null
+    // (Bodies come anew with every frame, so compare by who it was.)
+    const sameBody = body?.id === this.hoverCorpse?.id
+    this.hoverCorpse = body
+    if (c === this.hoverCreature && a === this.hoverAnimal && st === this.hoverStructure && sameBody) return
     this.hoverCreature = c
     this.hoverAnimal = a
     this.hoverStructure = st
@@ -844,8 +923,7 @@ export class GameEngine {
     const { w, h, scale } = this.view()
     const halfW = w / 2 / scale
     const halfH = h / 2 / scale
-    const clamp = (v: number, half: number, size: number) =>
-      size <= half * 2 ? size / 2 : Math.min(size - half, Math.max(half, v))
+    const clamp = (v: number, half: number, size: number) => (size <= half * 2 ? size / 2 : Math.min(size - half, Math.max(half, v)))
     this.camera.x = clamp(this.camera.x, halfW, this.width)
     this.camera.y = clamp(this.camera.y, halfH, this.height)
   }
@@ -905,14 +983,30 @@ export class GameEngine {
     this.evictChunks()
 
     ctx.setTransform(k, 0, 0, k, originX, originY)
+    const watching = this.mode === 'watch'
+    const still = this.ambient.still
+    const wind = this.ambient.vector
     if (v.scale >= 16) this.drawWaterShimmer(tx0, ty0, tx1, ty1, time)
-    if (this.mode === 'watch') this.weather.drawTint(ctx, this.width, this.height, this.keyAt)
+    if (watching) this.weather.drawTint(ctx, this.width, this.height, this.keyAt)
+    if (watching) this.drawScorch(tx0, ty0, tx1, ty1, v.scale)
     if (this.geologyOverlay) this.drawGeologyOverlay()
+    const villages = watching ? (this.live.villages ?? []) : []
+    if (villages.length) {
+      drawVillageLand(ctx, villages, zoom, { x0: v.left, y0: v.top, x1: v.left + v.w / v.scale, y1: v.top + v.h / v.scale })
+    }
     this.drawFlatStructures(tx0, ty0, tx1, ty1)
 
     ctx.imageSmoothingEnabled = true
     // Buildings reach up to two tiles above their own tile, so look a little below the view.
-    this.drawObjectsAndActors(tx0, Math.max(0, ty0 - 1), tx1, Math.min(this.height - 1, ty1 + 2), time)
+    const rowFrom = Math.max(0, ty0 - 1)
+    const rowTo = Math.min(this.height - 1, ty1 + 2)
+    const fireRows = watching ? firesByRow(this.live.frame?.fires, rowFrom, rowTo, tx0, tx1) : new Map()
+    const fires = fireRows.size ? [...fireRows.values()].flat() : []
+    if (fires.length) drawFireGlow(ctx, fires, time, 1 - (this.live.frame?.weather?.light ?? 0.6), still)
+    if (watching) this.drawCorpses(tx0, ty0, tx1, ty1)
+    this.drawObjectsAndActors(tx0, rowFrom, tx1, rowTo, time, fireRows, wind)
+    if (fires.length) drawFireSmoke(ctx, fires, time, wind, still)
+    if (this.mode === 'watch' && v.scale >= 10) this.drawMosquitoes(tx0, ty0, tx1, ty1, time, v.scale / TILE)
     if (this.mode === 'watch') {
       this.ambient.drawCloudShadows(ctx, TILE, this.width, this.height, time, {
         x0: v.left,
@@ -926,8 +1020,10 @@ export class GameEngine {
     if (this.mode === 'watch') {
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
       this.weather.drawRain(ctx, v.w, v.h, time)
+      this.weather.drawStorm(ctx, v.w, v.h)
       this.ambient.drawBirds(ctx, v.w, v.h, time)
       this.ambient.drawVignette(ctx, v.w, v.h)
+      if (villages.length) drawVillageLabels(ctx, villages, zoom, (x, y) => [(x - v.left) * v.scale, (y - v.top) * v.scale], v.w, v.h)
       this.drawLabels(dpr, v, zoom)
     }
     if (this.geologyOverlay) this.drawFeatureLabels(dpr, v)
@@ -965,6 +1061,11 @@ export class GameEngine {
     const i = ty * this.width + tx
     const ground = this.groundDefs[this.ground[i]]
     drawGround(ctx, this.keyAt, tx, ty, px, py, ground?.color)
+    // Watching: a river or lake as low as the water cycle has left it.
+    const ws = this.waterShown(i)
+    if (ws && (ws.state < WATER_FULL || ws.level < 224))
+      drawRiverbed(ctx, tx, ty, px, py, ws.state, ws.level / 255, this.wetArms(tx, ty), ws.foul / 255)
+    else if (ws) drawMurk(ctx, tx, ty, px, py, ws.foul / 255)
     const rock = this.rocks ? this.rockTypes[this.rocks[i]] : undefined
     if (rock && rock.id !== 0 && ground && ROCKY_GROUND.has(ground.key)) tintLithology(ctx, rock.color, px, py)
     const mined = this.minedOut.has(i)
@@ -998,6 +1099,95 @@ export class GameEngine {
     }
   }
 
+  /** How burnt a tile is, 0–1 (0 when nothing has burnt there or not watching). */
+  private scorchLevel(i: number) {
+    return this.scorch?.level.get(i) ?? 0
+  }
+
+  /** Land a fire passed over: charred, fading as plants return; ash flecks when zoomed in. */
+  private drawScorch(tx0: number, ty0: number, tx1: number, ty1: number, scale: number) {
+    const burnt = this.live.burnt
+    if (!burnt?.tiles.length) {
+      this.scorch = null
+      return
+    }
+    if (this.scorch?.from !== burnt) {
+      const level = new Map<number, number>()
+      for (const t of burnt.tiles) if (this.inBounds(t.x, t.y)) level.set(t.y * this.width + t.x, t.level)
+      this.scorch = { from: burnt, mask: buildScorchMask(burnt, this.width, this.height), level }
+    }
+    const ctx = this.ctx
+    const smoothing = ctx.imageSmoothingEnabled
+    // Stretched smoothly, so the burn's edge is soft rather than tile-square.
+    ctx.imageSmoothingEnabled = true
+    // Only the part in view (with a margin, so the soft edge is the same at the view's border).
+    const x0 = Math.max(0, tx0 - 2)
+    const y0 = Math.max(0, ty0 - 2)
+    const w = Math.min(this.width, tx1 + 3) - x0
+    const h = Math.min(this.height, ty1 + 3) - y0
+    if (w > 0 && h > 0) ctx.drawImage(this.scorch.mask, x0, y0, w, h, x0 * TILE, y0 * TILE, w * TILE, h * TILE)
+    ctx.imageSmoothingEnabled = smoothing
+    if (scale >= 24) drawAsh(ctx, burnt.tiles, tx0, ty0, tx1, ty1)
+  }
+
+  /** Bodies lying where people died, fading over the seconds the backend keeps them. */
+  private drawCorpses(tx0: number, ty0: number, tx1: number, ty1: number) {
+    for (const c of this.live.frame?.corpses ?? []) {
+      if (c.x < tx0 - 1 || c.x > tx1 + 2 || c.y < ty0 || c.y > ty1 + 2) continue
+      drawCorpse(this.ctx, c)
+      if (c === this.hoverCorpse) {
+        this.ctx.strokeStyle = 'rgba(255,255,255,0.6)'
+        this.ctx.lineWidth = 1.2
+        this.ctx.beginPath()
+        this.ctx.ellipse(c.x * TILE, c.y * TILE - 2, 17 * c.size, 6 * c.size, 0, 0, Math.PI * 2)
+        this.ctx.stroke()
+      }
+    }
+  }
+
+  /**
+   * Mosquitoes dancing in swarms where they breed (still pools, swamps, paddies,
+   * rain puddles), most at dusk and through the night, when Anopheles bite.
+   * Which of them carry malaria can't be seen; the Kesehatan tab tells.
+   */
+  private drawMosquitoes(tx0: number, ty0: number, tx1: number, ty1: number, time: number, k: number) {
+    const m = this.live.mosquitoes
+    if (!m || !m.cols) return
+    const ctx = this.ctx
+    // A few screen pixels each, however far in the view is zoomed.
+    const body = 1.6 / k
+    const wing = 3.2 / k
+    const light = this.live.frame?.weather?.light ?? 0.5
+    const active = 0.4 + 0.6 * (1 - light)
+    const c = m.cell
+    for (let cy = Math.floor(ty0 / c); cy <= Math.floor(ty1 / c) && cy < m.rows; cy++) {
+      for (let cx = Math.floor(tx0 / c); cx <= Math.floor(tx1 / c) && cx < m.cols; cx++) {
+        const d = m.density[cy * m.cols + cx] / 255
+        if (d < 0.08) continue
+        const swarms = 1 + Math.floor(d * 2.5)
+        for (let w = 0; w < swarms; w++) {
+          // Each swarm hangs over its own spot in the cell and drifts a little.
+          const sx = (cx * c + 0.5 + hash(cx, cy, 700 + w) * (c - 1)) * TILE + Math.sin(time * 0.4 + w) * 6
+          const sy = (cy * c + 0.5 + hash(cx, cy, 710 + w) * (c - 1)) * TILE - 10
+          const n = Math.round(6 + 26 * d * active)
+          for (let i = 0; i < n; i++) {
+            const a = hash(cx * 31 + w, cy, 720 + i)
+            const b = hash(cx, cy * 31 + w, 740 + i)
+            const x = sx + Math.sin(time * (5 + a * 4) + a * 40) * (5 + 8 * b)
+            const y = sy + Math.cos(time * (4 + b * 5) + b * 40) * (3 + 6 * a)
+            // A pale glint of beating wings round a dark body, so they show on water and leaves alike.
+            ctx.fillStyle = 'rgba(230,235,240,0.22)'
+            ctx.beginPath()
+            ctx.ellipse(x, y, wing, wing * 0.55, Math.sin(time * 30 + i) * 0.6, 0, Math.PI * 2)
+            ctx.fill()
+            ctx.fillStyle = `rgba(14,14,18,${0.55 + 0.4 * active})`
+            ctx.fillRect(x - body / 2, y - body / 2, body, body)
+          }
+        }
+      }
+    }
+  }
+
   private drawWaterShimmer(tx0: number, ty0: number, tx1: number, ty1: number, time: number) {
     const ctx = this.ctx
     const rain = this.mode === 'watch' ? this.weather.rainLevel : 0
@@ -1008,9 +1198,14 @@ export class GameEngine {
     for (let ty = ty0; ty <= ty1; ty++) {
       for (let tx = tx0; tx <= tx1; tx++) {
         if (!isWater(this.keyAt(tx, ty))) continue
+        // A river that has stopped running doesn't ripple or lap at its banks.
+        const ws = this.waterShown(ty * this.width + tx)
+        if (ws && ws.state < WATER_FULL) continue
+        // Scummy water barely glints.
+        const glint = ws ? 1 - (ws.foul / 255) * 0.8 : 1
         for (let j = 0; j < 2; j++) {
           const phase = (time * 0.3 + hash(tx, ty, 200 + j)) % 1
-          ctx.globalAlpha = Math.sin(phase * Math.PI) * 0.25
+          ctx.globalAlpha = Math.sin(phase * Math.PI) * 0.25 * glint
           ctx.fillRect(tx * TILE + 2 + phase * (TILE - 12), ty * TILE + 5 + hash(tx, ty, 210 + j) * (TILE - 10), 8, 1.5)
         }
         // Foam laps at the shore, in and out.
@@ -1088,7 +1283,15 @@ export class GameEngine {
   }
 
   /** Draws upright objects row by row so the player and creatures are depth-sorted between them. */
-  private drawObjectsAndActors(tx0: number, ty0: number, tx1: number, ty1: number, time: number) {
+  private drawObjectsAndActors(
+    tx0: number,
+    ty0: number,
+    tx1: number,
+    ty1: number,
+    time: number,
+    fireRows: Map<number, FireFrame[]> = new Map(),
+    wind?: WindVector,
+  ) {
     const ctx = this.ctx
     const p = this.player
     let playerDrawn = this.mode !== 'play'
@@ -1103,6 +1306,9 @@ export class GameEngine {
         : []
     const actors = visible(this.creatures.values())
     const herd = visible(this.animals.values())
+    // Two people talking or bartering get one glyph between them (drawn over everyone, below).
+    const exchanges = pairExchanges(actors)
+    this.paired = exchanges.paired
     let next = 0
     let nextAnimal = 0
     // Two sorted lists, merged on the fly so people and animals overlap correctly.
@@ -1138,7 +1344,9 @@ export class GameEngine {
         if (!def || FLAT_OBJECTS.has(def.key) || this.logged.has(i)) continue
         const variants = this.sprites.get(def.key)
         if (variants) {
-          const sprite = variants[Math.floor(hash(tx, ty, 7) * VARIANTS)]
+          let sprite = variants[Math.floor(hash(tx, ty, 7) * VARIANTS)]
+          // A plant a fire passed over stands blackened.
+          if (SWAY[def.key] && this.scorchLevel(i) >= CHARRED_FROM) sprite = charredSprite(sprite)
           const lean = this.mode === 'watch' && SWAY[def.key] ? this.ambient.sway(tx, ty, time, SWAY[def.key]) : 0
           if (lean) {
             // Bend in the wind from the foot of the trunk.
@@ -1171,9 +1379,12 @@ export class GameEngine {
         if (st.x < sx0 || st.x > sx1) continue
         this.drawStructure(st, selectedHouse, time)
       }
+      // Flames stand in front of what burns on their tile.
+      for (const f of fireRows.get(ty) ?? []) drawFlames(ctx, f, time, wind ?? this.ambient.vector, this.ambient.still)
     }
     if (!playerDrawn) drawP()
     drawActorsBefore(Infinity)
+    for (const { a, b, trade } of exchanges.pairs) drawExchange(ctx, a, b, trade, time, (c) => creatureScale(c.size, c.flags))
   }
 
   private drawStructure(st: StructureFrame, selectedHouse: number, time: number) {
@@ -1232,10 +1443,15 @@ export class GameEngine {
       flags: c.flags,
       energy: c.energy,
       health: c.health,
-      step: c.step,
+      step: c.walked * PERSON_STRIDE,
       moving: c.moving,
       variant: c.id,
       time,
+      mood: c.mood,
+      moodStrength: c.moodStrength,
+      detail: this.camera.zoom >= DETAIL_ZOOM,
+      still: this.ambient.still,
+      exchangeShown: this.paired.has(c.id),
     })
   }
 
@@ -1253,7 +1469,7 @@ export class GameEngine {
       species: a.species,
       heading: a.rh,
       flags: a.flags,
-      step: a.step,
+      step: a.walked * (ANIMAL_STRIDE[a.species] ?? 1.2),
       moving: a.moving,
       variant: a.id,
       time,
@@ -1338,7 +1554,8 @@ export class GameEngine {
     if (selected) shown.add(selected)
     const st = this.hoverStructure
     const animal = this.hoverAnimal
-    if (!shown.size && !st && !animal) return
+    const body = this.hoverCorpse
+    if (!shown.size && !st && !animal && !body) return
 
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
     ctx.font = '600 12px Inter, system-ui, sans-serif'
@@ -1356,6 +1573,20 @@ export class GameEngine {
       ctx.roundRect(x - w / 2, y - 10, w, 20, 6)
       ctx.fill()
       ctx.fillStyle = st.ownerId ? `hsl(${st.hue} 80% 75%)` : '#b8c0cc'
+      ctx.fillText(text, x - w / 2 + 7, y + 0.5)
+    }
+
+    if (body) {
+      const cause = DEATH_LABELS[body.cause] ?? body.cause
+      const text = `${SEX_SYMBOL[body.sex]} Jenazah, ${Math.floor(body.age)} tahun · ${cause}`
+      const x = (body.x - v.left) * v.scale
+      const y = (body.y - v.top) * v.scale - 22 * zoom
+      const w = ctx.measureText(text).width + 14
+      ctx.fillStyle = 'rgba(10,18,30,0.82)'
+      ctx.beginPath()
+      ctx.roundRect(x - w / 2, y - 10, w, 20, 6)
+      ctx.fill()
+      ctx.fillStyle = '#c9cdd4'
       ctx.fillText(text, x - w / 2 + 7, y + 0.5)
     }
 
@@ -1378,7 +1609,7 @@ export class GameEngine {
       const x = (c.rx - v.left) * v.scale
       const y = (c.ry - v.top) * v.scale - head - 10
       const symbol = SEX_SYMBOL[c.sex]
-      const text = `${symbol} ${c.name}${c.flags & FLAG.head ? ' 👑' : ''}`
+      const text = `${symbol} ${c.name}${c.flags & FLAG.head ? ' 👑' : ''}${c.flags & FLAG.leader ? ' 🚩' : ''}${motionNote(c.flags)}`
       const w = ctx.measureText(text).width + 14
       ctx.fillStyle = c === selected ? 'rgba(40,32,8,0.88)' : 'rgba(10,18,30,0.82)'
       ctx.beginPath()
@@ -1498,10 +1729,22 @@ export class GameEngine {
         ctx.fillStyle = !st.ownerId ? '#8a8f98' : st.level > 0 ? `hsl(${st.hue} 75% 60%)` : '#ffffff'
         ctx.fillRect(ox + (st.x + 0.5) * s - 1.5, oy + (st.y + 0.5) * s - 1.5, 3, 3)
       }
+      // Villages' land outlined in their colour, fires as bright dots.
+      ctx.lineWidth = 1
+      for (const vl of this.live.villages ?? []) {
+        if ((vl.hull?.length ?? 0) < 3) continue
+        ctx.strokeStyle = `hsla(${vl.hue}, 75%, 70%, 0.9)`
+        ctx.beginPath()
+        vl.hull.forEach(([x, y], i) => (i ? ctx.lineTo(ox + x * s, oy + y * s) : ctx.moveTo(ox + x * s, oy + y * s)))
+        ctx.closePath()
+        ctx.stroke()
+      }
       for (const c of this.creatures.values()) {
         ctx.fillStyle = c.sex === 'female' ? '#ff8fc7' : '#6fb6ff'
         ctx.fillRect(ox + c.rx * s - 1, oy + c.ry * s - 1, 2, 2)
       }
+      ctx.fillStyle = '#ff7a2f'
+      for (const f of this.live.frame?.fires ?? []) ctx.fillRect(ox + (f.x + 0.5) * s - 1.5, oy + (f.y + 0.5) * s - 1.5, 3, 3)
       const sel = this.selectedId !== null ? this.creatures.get(this.selectedId) : undefined
       if (sel) {
         ctx.strokeStyle = '#ffd166'
@@ -1710,6 +1953,7 @@ export class GameEngine {
     this.canvas.setPointerCapture(e.pointerId)
     if (e.button === 1 || e.button === 2) {
       this.panning = { sx: e.clientX, sy: e.clientY, cx: this.camera.x, cy: this.camera.y }
+      this.aimed = true
       this.stopFollow()
       return
     }
@@ -1791,6 +2035,7 @@ export class GameEngine {
   private onContextMenu = (e: Event) => e.preventDefault()
 
   private onMinimapPointer = (e: PointerEvent) => {
+    this.aimed = true
     if (this.mode === 'play' || !this.minimap) return
     const r = this.minimap.getBoundingClientRect()
     const { s, ox, oy } = this.minimapLayout()

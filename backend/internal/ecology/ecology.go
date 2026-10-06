@@ -31,6 +31,14 @@ type Land struct {
 	Water     []bool
 	Fresh     []bool // drinkable water: rivers and lakes, not the sea
 	NearWater []bool // walkable and next to water
+	// The lie of the land for the water cycle (nil in hand-made lands):
+	// where each tile's water runs next (-1: the sea), and which tiles are
+	// river channels rather than lakes.
+	Down  []int32
+	River []bool
+	// Altitude of each tile from the shore (0) to the peaks (1); nil in
+	// hand-made lands, which are taken as lowland.
+	Altitude []float32
 }
 
 // LandFromMap derives a Land from a map.
@@ -38,10 +46,24 @@ func LandFromMap(m *world.Map) Land {
 	n := m.Width * m.Height
 	l := Land{W: m.Width, H: m.Height, Ground: m.Layers.Ground, Objects: m.Layers.Objects,
 		Blocked: make([]bool, n), Water: make([]bool, n), NearWater: make([]bool, n), Fresh: world.FreshWater(m)}
+	g := world.BuildGeoModel(m)
+	if len(g.Down) == n && len(g.RiverOf) == n {
+		l.Down = g.Down
+		l.River = make([]bool, n)
+		for i, r := range g.RiverOf {
+			l.River[i] = r >= 0
+		}
+	}
+	if len(g.Elevation) == n && g.PeakLevel > g.ShoreLevel {
+		l.Altitude = make([]float32, n)
+		for i, h := range g.Elevation {
+			l.Altitude[i] = float32(clamp((h-g.ShoreLevel)/(g.PeakLevel-g.ShoreLevel), 0, 1))
+		}
+	}
 	for i := range n {
-		g, o := m.Layers.Ground[i], m.Layers.Objects[i]
-		l.Water[i] = g == world.Water || g == world.DeepWater
-		l.Blocked[i] = world.GroundTiles[g].Solid || world.ObjectTiles[o].Solid
+		gr, o := m.Layers.Ground[i], m.Layers.Objects[i]
+		l.Water[i] = gr == world.Water || gr == world.DeepWater
+		l.Blocked[i] = world.GroundTiles[gr].Solid || world.ObjectTiles[o].Solid
 	}
 	for i := range n {
 		if l.Blocked[i] {
@@ -77,6 +99,10 @@ type Options struct {
 	NoClimate bool
 	// NoFauna leaves the land without wild animals.
 	NoFauna bool
+	// NoWaterCycle keeps every river and lake full all year (no drying up).
+	NoWaterCycle bool
+	// NoFire: nothing ever burns. The wind and the storms still blow.
+	NoFire bool
 }
 
 // Humans is what the ecology may ask about, or do to, people.
@@ -124,7 +150,8 @@ type Ecology struct {
 	nearSea   []bool  // within 3 tiles of the sea
 	walkable  []int32
 
-	clim Climate
+	clim  Climate
+	hydro hydrology
 
 	// Vegetation per tile.
 	forage    []float32 // food people can gather or eat: fruit, tubers, greens
@@ -144,6 +171,7 @@ type Ecology struct {
 	ripeCells [][]int32 // per 8×8 cell, tiles of ripe plots
 
 	fauna fauna
+	fire  fireField // fire.go
 
 	events []Event
 	stats  Stats
@@ -161,11 +189,32 @@ const (
 func New(l Land, rng *rand.Rand, opts Options, t float64) *Ecology {
 	e := newEcology(l, rng, opts)
 	e.clim.init(t, opts.NoClimate)
+	e.fillHydrology()
 	e.seedVegetation()
 	if !opts.NoFauna {
 		e.populate(t)
 	}
+	e.clim.Seed = e.weatherSeed()
 	return e
+}
+
+// weatherSeed is a number of this world's own for the weather's hashed
+// chances, taken from where wild crops and animals happened to be placed
+// (which the simulation's random generator decided) so that it draws
+// nothing more from it.
+func (e *Ecology) weatherSeed() uint64 {
+	h := uint64(0xCBF29CE484222325)
+	mix := func(v uint64) { h = (h ^ v) * 0x100000001B3 }
+	for i, w := range e.wild {
+		if w != 0 {
+			mix(uint64(i)<<8 | uint64(w))
+		}
+	}
+	for _, a := range e.fauna.animals {
+		mix(math.Float64bits(a.X))
+		mix(math.Float64bits(a.Y))
+	}
+	return h | 1
 }
 
 func newEcology(l Land, rng *rand.Rand, opts Options) *Ecology {
@@ -190,6 +239,7 @@ func newEcology(l Land, rng *rand.Rand, opts Options) *Ecology {
 	for i := range e.woodland {
 		e.woodland[i] = 1
 	}
+	e.fire.init(l.W, l.H)
 	e.deriveLand()
 	e.fauna.init(e)
 	e.stats.ready()
@@ -197,15 +247,24 @@ func newEcology(l Land, rng *rand.Rand, opts Options) *Ecology {
 }
 
 // Tick advances the ecology by one simulation tick of dt seconds ending at
-// time t. Animals move every other tick; plants, fish and fields grow every
-// growEvery ticks.
+// time t. Animals move and fires burn every other tick; plants, fish and
+// fields grow, and burnt land greens, every growEvery ticks.
 func (e *Ecology) Tick(tick int64, t, dt float64, h Humans) {
+	e.fire.tick = tick
 	e.clim.step(e, t, dt)
+	if tick%hydroEvery == 0 {
+		e.stepHydrology(dt * hydroEvery)
+		e.waterEvents()
+	}
 	if tick%faunaEvery == 0 && !e.opts.NoFauna {
 		e.fauna.step(e, t, dt*faunaEvery, h)
 	}
 	if tick%growEvery == 0 {
 		e.grow(t, dt*growEvery)
+		e.fadeScorch(dt * growEvery)
+	}
+	if tick%fireEvery == 0 {
+		e.burn(dt * fireEvery)
 	}
 }
 

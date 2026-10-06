@@ -148,7 +148,7 @@ func fakeWorld(t *testing.T) (*Sim, *fakeGeo, int, int) {
 // person puts an adult with a blank brain at the centre of tile (x, y).
 func person(s *Sim, sex Sex, name string, x, y int) *Creature {
 	g := emptyGenome(initialHidden)
-	g.Traits = Traits{Hue: 120, Size: 1, MaxSpeed: 2, Vision: 5, Metabolism: 1, Lifespan: 500, MutationRate: 0.05}
+	g.Traits = Traits{Hue: 120, Size: 1, MaxSpeed: 2, Vision: 5, Metabolism: 1, Lifespan: 500, MutationRate: 0.05, Menopause: 50}
 	return s.spawnAdult(g, sex, name, float64(x)+0.5, float64(y)+0.5)
 }
 
@@ -162,10 +162,10 @@ func lastEvent(s *Sim) string {
 // --- brain ------------------------------------------------------------------
 
 func TestBrainShapes(t *testing.T) {
-	if len(InputLabels) != NumInputs || NumInputs != 71 {
+	if len(InputLabels) != NumInputs || NumInputs != 99 || legacyInputs != 71 || alarmInputs != 78 || engineInputs != 96 {
 		t.Fatalf("got %d input labels, NumInputs=%d", len(InputLabels), NumInputs)
 	}
-	if len(OutputLabels) != NumOutputs || NumOutputs != 15 {
+	if len(OutputLabels) != NumOutputs || NumOutputs != 17 || legacyOutputs != 15 {
 		t.Fatalf("got %d output labels", len(OutputLabels))
 	}
 	checks := map[int]string{
@@ -175,6 +175,10 @@ func TestBrainShapes(t *testing.T) {
 		inReward: "imbalan terakhir", inLibraryNear: "perpustakaan dekat", inClock: "jam internal",
 		inAnimal: "hewan -60°", inSeason: "musim", inLight: "cahaya", inCanPlant: "bisa menanam",
 		inCropReady: "tanaman siap panen", inLivestockHungry: "ternak lapar", inPredatorNear: "pemangsa dekat",
+		inChildHungry: "anak lapar dekat", inNursing: "menyusui", inSick: "sakit", inMateHealth: "kesehatan calon pasangan",
+		inAlarm: "bahaya yang terdengar atau terlihat", inShock: "kejadian mengejutkan", inGrief: "duka",
+		inTalkNear: "ada yang mengajak bicara", inIsLeader: "aku pemimpin", inFireNear: "api terlihat",
+		inClimbAhead: "tanjakan di depan", inFoodMemory: "makanan yang diingat", inCarryWater: "bawa air",
 	}
 	for i, want := range checks {
 		if InputLabels[i] != want {
@@ -182,7 +186,8 @@ func TestBrainShapes(t *testing.T) {
 		}
 	}
 	if OutputLabels[outGather] != "kumpulkan" || OutputLabels[outAttack] != "serang" || OutputLabels[outTeach] != "ajar" ||
-		OutputLabels[outPlant] != "tanam" || OutputLabels[outHunt] != "buru" {
+		OutputLabels[outPlant] != "tanam" || OutputLabels[outHunt] != "buru" ||
+		OutputLabels[outTalk] != "bicara" || OutputLabels[outTrade] != "tukar" {
 		t.Fatalf("outputs out of order: %v", OutputLabels)
 	}
 }
@@ -293,8 +298,12 @@ func TestReproductionAndMarriage(t *testing.T) {
 	home := s.addStructure(s.cat.structure["gubuk"], x, y, f)
 	s.moveIn(f, home)
 
-	for range int(gestation*TicksPerSecond) + 10 {
+	// Conceiving takes a few months of trying (a chance each month), then nine months.
+	for range int((gestation+2*SecondsPerYear)*TicksPerSecond) + 10 {
 		s.step()
+		if f.Children > 0 {
+			break
+		}
 	}
 
 	var child *Creature
@@ -752,7 +761,7 @@ func TestFrameAndStructuresAreValidJSON(t *testing.T) {
 	if err := json.Unmarshal(s.encodeFrame(), &raw); err != nil {
 		t.Fatal(err)
 	}
-	if raw.T != 1 || len(raw.C) != 1 || len(raw.C[0]) != 12 || raw.C[0][11].(float64) != float64(c.HouseID) {
+	if raw.T != 1 || len(raw.C) != 1 || len(raw.C[0]) != 17 || raw.C[0][11].(float64) != float64(c.HouseID) {
 		t.Fatalf("unexpected frame: %+v", raw)
 	}
 	if int(raw.C[0][8].(float64))&flagHead == 0 {

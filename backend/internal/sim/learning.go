@@ -30,6 +30,24 @@ type Mind struct {
 	Baseline  float64 `json:"baseline"`  // expected reward
 	Reward    float64 `json:"reward"`    // last reward, felt as "imbalan terakhir"
 
+	// Neurons grown during this life (see growth.go), neuron by neuron.
+	Grown int       `json:"grown,omitempty"`
+	GIn   weights   `json:"gIn,omitempty"`   // [k*NumInputs + input]
+	GRec  weights   `json:"gRec,omitempty"`  // [k*Hidden + inherited neuron]
+	GOut  weights   `json:"gOut,omitempty"`  // [k*NumOutputs + output]
+	GBias weights   `json:"gBias,omitempty"` // per grown neuron
+	GTau  weights   `json:"gTau,omitempty"`
+	GBorn weights   `json:"gBorn,omitempty"` // age in years when it grew
+	GUse  weights   `json:"gUse,omitempty"`  // how much it has been used lately
+	EGIn  weights   `json:"eGIn,omitempty"`  // eligibility traces
+	EGOut weights   `json:"eGOut,omitempty"`
+	GAct  []float64 `json:"gAct,omitempty"` // current activations
+	// Novelty is the felt surprise (how unpredictable life has been lately);
+	// Grew and Pruned count the neurons this life has gained and lost.
+	Novelty float64 `json:"novelty,omitempty"`
+	Grew    int     `json:"grew,omitempty"`
+	Pruned  int     `json:"pruned,omitempty"`
+
 	// Effective weights (inherited + learned), rebuilt from the above.
 	wIn, wOut weights
 }
@@ -45,9 +63,40 @@ func newMind(g *Genome) *Mind {
 	return m
 }
 
+// upgrade widens a mind saved with fewer senses or actions (see padInputs
+// and padRows); what was learned keeps its place.
+func (m *Mind) upgrade(g *Genome) {
+	H := g.Hidden
+	for _, w := range []*weights{&m.DIn, &m.EIn} {
+		if n := len(*w); n == legacyInputs*H || n == healthInputs*H || n == alarmInputs*H || n == engineInputs*H {
+			*w = padInputs(*w, H)
+		}
+	}
+	for _, w := range []*weights{&m.DOut, &m.EOut} {
+		if len(*w) == legacyOutputs*H {
+			*w = padRows(*w, legacyOutputs, NumOutputs)
+		}
+	}
+	if m.Grown > 0 {
+		for _, w := range []*weights{&m.GIn, &m.EGIn} {
+			for _, old := range []int{legacyInputs, healthInputs, alarmInputs, engineInputs} {
+				if len(*w) == old*m.Grown {
+					*w = padRows(*w, old, NumInputs)
+					break
+				}
+			}
+		}
+		for _, w := range []*weights{&m.GOut, &m.EGOut} {
+			if len(*w) == legacyOutputs*m.Grown {
+				*w = padRows(*w, legacyOutputs, NumOutputs)
+			}
+		}
+	}
+}
+
 func (m *Mind) valid(g *Genome) bool {
 	return len(m.DIn) == len(g.WIn) && len(m.EIn) == len(g.WIn) &&
-		len(m.DOut) == len(g.WOut) && len(m.EOut) == len(g.WOut)
+		len(m.DOut) == len(g.WOut) && len(m.EOut) == len(g.WOut) && m.growthValid(g.Hidden)
 }
 
 // rebuild recomputes the effective weights.
@@ -80,6 +129,7 @@ func (s *Sim) learnStep(c *Creature) {
 	m.Baseline += (r - m.Baseline) * baselineRate
 	m.Reward = r
 	tr := g.Traits
+	s.grow(c, surprise)
 	if s.noPlasticity() || tr.LearningRate <= 0 || tr.Plasticity <= 0 {
 		return
 	}
@@ -89,29 +139,42 @@ func (s *Sim) learnStep(c *Creature) {
 	step := float32(tr.LearningRate * surprise)
 	limit := float32(tr.Plasticity)
 	keep := float32(1 - forgetting)
-	update := func(d, e, eff, base weights, i int, coactive float32) {
-		e[i] = decay*e[i] + coactive
-		d[i] = clamp32((d[i]+step*e[i])*keep, -limit, limit)
-		eff[i] = clamp32(base[i]+d[i], -maxWeight, maxWeight)
+	var hidden [stackNeurons]float32
+	var post []float32
+	if H <= stackNeurons {
+		post = hidden[:H]
+	} else {
+		post = make([]float32, H)
 	}
-	for i, pre := range c.input {
-		row := i * H
-		p := float32(pre)
-		for h := range H {
-			update(m.DIn, m.EIn, m.wIn, g.WIn, row+h, p*float32(c.Hidden[h]))
+	for h := range post {
+		post[h] = float32(c.Hidden[h])
+	}
+	for i, v := range c.input {
+		pre, row := float32(v), i*H
+		e, d, eff, base := m.EIn[row:row+H], m.DIn[row:row+H], m.wIn[row:row+H], g.WIn[row:row+H]
+		for h, q := range post {
+			e[h] = decay*e[h] + pre*q
+			d[h] = clamp32((d[h]+step*e[h])*keep, -limit, limit)
+			eff[h] = clamp32(base[h]+d[h], -maxWeight, maxWeight)
 		}
 	}
-	for h := range H {
-		post := float32(c.Hidden[h])
+	var acts [NumOutputs]float32
+	for o, act := range c.output {
+		if o != outTurn {
+			act = (act - 0.5) * 2 // sigmoid outputs centred on "undecided"
+		}
+		acts[o] = float32(act)
+	}
+	for h, q := range post {
 		row := h * NumOutputs
-		for o := range NumOutputs {
-			act := c.output[o]
-			if o != outTurn {
-				act = (act - 0.5) * 2 // sigmoid outputs centred on "undecided"
-			}
-			update(m.DOut, m.EOut, m.wOut, g.WOut, row+o, post*float32(act))
+		e, d, eff, base := m.EOut[row:row+NumOutputs], m.DOut[row:row+NumOutputs], m.wOut[row:row+NumOutputs], g.WOut[row:row+NumOutputs]
+		for o, a := range acts {
+			e[o] = decay*e[o] + q*a
+			d[o] = clamp32((d[o]+step*e[o])*keep, -limit, limit)
+			eff[o] = clamp32(base[o]+d[o], -maxWeight, maxWeight)
 		}
 	}
+	m.learnGrown(c, decay, step, keep, limit)
 }
 
 // learnedPerNeuron tells how much each hidden neuron's weights changed

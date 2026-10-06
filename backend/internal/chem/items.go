@@ -10,6 +10,7 @@ const (
 	kindMetal     = "logam"
 	kindTool      = "alat"
 	kindWeapon    = "senjata"
+	kindVessel    = "kendaraan"
 )
 
 func el(symbols ...string) []string { return symbols }
@@ -126,6 +127,15 @@ var items = []Item{
 	{ID: "beliung_perunggu", Name: "Beliung Perunggu", Kind: kindTool, Elements: el("Cu", "Sn", "C"), Value: 8, Gather: 2},
 	{ID: "beliung_besi", Name: "Beliung Besi", Kind: kindTool, Elements: el("Fe", "C"), Value: 10, Gather: 2.5},
 	{ID: "beliung_baja", Name: "Beliung Baja", Kind: kindTool, Elements: el("Fe", "C"), Value: 13, Gather: 3},
+
+	// Watercraft. A raft of logs or bamboo lashed with rope carries its
+	// owner over deep water (sim/locomotion.go); it is heavy to carry overland.
+	{ID: "rakit", Name: "Rakit", Kind: kindVessel, Elements: el("C", "H", "O"), Value: 3},
+
+	// A length of bamboo with the node as its bottom, or a dried gourd,
+	// stoppered with fibre: water for a day away from the river
+	// (sim/forage.go).
+	{ID: "tabung_air", Name: "Tabung Air Bambu", Kind: kindProcessed, Elements: el("C", "H", "O"), Value: 1},
 
 	// Weapons add to attack damage.
 	{ID: "tombak_batu", Name: "Tombak Batu", Kind: kindWeapon, Elements: el("Si", "O", "C"), Value: 2, Damage: 0.5},

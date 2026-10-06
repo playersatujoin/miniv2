@@ -13,9 +13,32 @@ import (
 )
 
 // v6 (Fase 2): the living land (climate, plants, fields, fish, animals) and
-// brains with senses for animals, seasons and crops. Older saves can't be
-// read; the world is backed up and starts over.
-const stateVersion = 6
+// brains with senses for animals, seasons and crops.
+// v7: neurons with their own bias and time constant, and neurons grown during
+// life. A v6 world loads as is (bias 0, tau 1, nothing grown yet, the default
+// neurogenesis gene). Older saves can't be read; the world is backed up and
+// starts over.
+// v8 (Fase 3): six more senses (padded in from older brains), nursing,
+// menopause, deaths in childbirth.
+// v9 (Fase 3b): infectious disease: illness, immunity and worms per person,
+// the Immunity gene (1 in older genomes), germs in the water, the mosquito
+// and worm-egg maps and the epidemic curve. Older worlds start healthy.
+// v10 adds local memories, relationships and resumable navigation. Old brains
+// retain every connection; the appended alarm sense starts with zero weights.
+// v11 (engine adaptation II): lasting stimuli and bodies, moods, two-person
+// exchanges with gossip and trade, fire and wind, travel over water and steep
+// ground, villages and leaders. Eighteen senses and two actions are appended
+// to every brain, unwired; older worlds start calm, dry and without villages.
+// v12: remembered food places, water carried in tubes, smoothed movement,
+// and brains without a size ceiling. Three senses are appended, unwired.
+// v13: nutrition (protein and micronutrient stores, stature), diploid
+// genetics with a pedigree and inbreeding, and food sharing (carcasses,
+// granaries). Zero values mean well fed, unknown genes and nothing shared;
+// everyone alive in an older world joins the pedigree as a founder of it.
+const stateVersion = 13
+
+// oldestReadable is the oldest save version Restore still understands.
+const oldestReadable = 6
 
 // state is the on-disk form of a Sim.
 type state struct {
@@ -31,7 +54,7 @@ type state struct {
 	Births        int                   `json:"births"`
 	Deaths        int                   `json:"deaths"`
 	Era           int                   `json:"era"`
-	DeathsBy      deathCounts           `json:"deathsBy"`
+	DeathsBy      DeathCounts           `json:"deathsBy"`
 	Crimes        int                   `json:"crimes"`
 	Kindness      int                   `json:"kindness"`
 	Kills         int                   `json:"kills"`
@@ -43,6 +66,7 @@ type state struct {
 	Techs         map[string]*Discovery `json:"techs"`
 	Eco           *ecology.State        `json:"eco"`
 	EcoHistory    []EcoPoint            `json:"ecoHistory,omitempty"`
+	WaterHistory  []WaterPoint          `json:"waterHistory,omitempty"`
 	CapHits       int                   `json:"capHits,omitempty"`
 	Deposits      []float32             `json:"deposits"`
 	TileItems     []byte                `json:"tileItems"`
@@ -55,6 +79,43 @@ type state struct {
 	LastHolder    map[string]Ref        `json:"lastHolder,omitempty"`
 	KnowledgeLost int                   `json:"knowledgeLost,omitempty"`
 	EventClock    *eventClock           `json:"eventClock,omitempty"`
+	// Neurons grown and pruned in all lives (v7).
+	Grown  int64 `json:"grown,omitempty"`
+	Pruned int64 `json:"pruned,omitempty"`
+	// Disease (v9).
+	Epi *epiState `json:"epi,omitempty"`
+	// Engine adaptation II (v11).
+	Stimuli  *stimulusState `json:"stimuli,omitempty"`
+	Exchange *exchangeState `json:"exchange,omitempty"`
+	Villages *villageState  `json:"villages,omitempty"`
+	// Food sharing: carcasses and what was shared (sharing.go).
+	Sharing *sharing `json:"sharing,omitempty"`
+	// Fase 3c: the pedigree and genetic statistics.
+	Genetics *geneticsSave `json:"genetics,omitempty"`
+}
+
+// epiState is the saved epidemiology.
+type epiState struct {
+	Mosquito weights    `json:"mosquito"`
+	Infected weights    `json:"infected"`
+	Soil     weights    `json:"soil"`
+	Strains  int        `json:"strains,omitempty"`
+	Deaths   int        `json:"deaths,omitempty"`
+	History  []EpiPoint `json:"history,omitempty"`
+}
+
+func (e *epidemiology) save() *epiState {
+	return &epiState{Mosquito: e.mosquito, Infected: e.infected, Soil: e.soil, Strains: e.strains, Deaths: e.deaths, History: e.history}
+}
+
+func (e *epidemiology) restore(st *epiState) {
+	if st == nil || len(st.Mosquito) != len(e.mosquito) || len(st.Infected) != len(e.infected) || len(st.Soil) != len(e.soil) {
+		return
+	}
+	copy(e.mosquito, st.Mosquito)
+	copy(e.infected, st.Infected)
+	copy(e.soil, st.Soil)
+	e.strains, e.deaths, e.history = st.Strains, st.Deaths, st.History
 }
 
 // eventClock is when each throttled kind of event was last reported, so a
@@ -101,6 +162,7 @@ func (s *Sim) MarshalState() ([]byte, error) {
 		Techs:         s.techs,
 		Eco:           s.eco.State(),
 		EcoHistory:    s.ecoHistory,
+		WaterHistory:  s.waterHistory,
 		CapHits:       s.capHits,
 		Deposits:      s.geo.Amounts(),
 		TileItems:     s.tileItems,
@@ -113,6 +175,14 @@ func (s *Sim) MarshalState() ([]byte, error) {
 		LastHolder:    s.lastHolder,
 		KnowledgeLost: s.knowledgeLost,
 		EventClock:    &eventClock{Eco: s.lastEcoEvt, Learn: s.lastLearnEvent, Kind: s.lastKindEvent, Crime: s.lastCrimeEvent},
+		Grown:         s.grown,
+		Pruned:        s.pruned,
+		Epi:           s.epi.save(),
+		Stimuli:       s.saveStimuli(),
+		Exchange:      s.saveExchange(),
+		Villages:      s.saveVillages(),
+		Sharing:       s.saveSharing(),
+		Genetics:      s.saveGenetics(),
 	})
 	if err != nil {
 		return nil, err
@@ -147,7 +217,7 @@ func restoreWith(m *world.Map, data []byte, cat *catalog) (*Sim, error) {
 	if err := json.Unmarshal(raw, &st); err != nil {
 		return nil, err
 	}
-	if st.Version != stateVersion {
+	if st.Version < oldestReadable || st.Version > stateVersion {
 		return nil, fmt.Errorf("unsupported sim state version %d", st.Version)
 	}
 	if st.Width != m.Width || st.Height != m.Height {
@@ -155,6 +225,7 @@ func restoreWith(m *world.Map, data []byte, cat *catalog) (*Sim, error) {
 	}
 
 	s := newSimWith(m, 0, cat)
+	s.loadedVersion = st.Version
 	if err := s.src.UnmarshalBinary(st.Rng); err != nil {
 		return nil, err
 	}
@@ -167,14 +238,29 @@ func restoreWith(m *world.Map, data []byte, cat *catalog) (*Sim, error) {
 	}
 	s.eco = eco
 	s.ecoHistory = st.EcoHistory
+	s.waterHistory = st.WaterHistory
 	s.capHits = st.CapHits
 	if len(st.Deposits) > 0 {
 		if err := s.geo.SetAmounts(st.Deposits); err != nil {
 			return nil, err
 		}
 	}
+	drove := map[*Genome]*Genome{}
 	for _, c := range st.Creatures {
 		g := c.Genome
+		if g != nil {
+			g.upgrade(st.Version)
+		}
+		if p := c.Pregnancy; p != nil && p.FatherGenome != nil {
+			p.FatherGenome.upgrade(st.Version)
+		}
+		if g != nil && c.Mind != nil {
+			c.Mind.upgrade(g)
+			if st.Version < 12 && g.valid() && len(c.Hidden) == g.Hidden && c.Mind.valid(g) {
+				giveDrive(c, drove)
+				g = c.Genome
+			}
+		}
 		if g == nil || !g.valid() || len(c.Hidden) != g.Hidden || c.Mind == nil || !c.Mind.valid(g) {
 			return nil, fmt.Errorf("creature %d has a malformed brain", c.ID)
 		}
@@ -184,9 +270,15 @@ func restoreWith(m *world.Map, data []byte, cat *catalog) (*Sim, error) {
 		c.Mind.rebuild(g)
 		s.add(c)
 	}
-	for _, a := range st.Archive {
+	for i, a := range st.Archive {
+		if a.Genome != nil {
+			a.Genome.upgrade(st.Version)
+		}
 		if a.Genome == nil || !a.Genome.valid() {
 			return nil, fmt.Errorf("archive holds a malformed genome")
+		}
+		if st.Version < 12 {
+			st.Archive[i].Genome = droveGenome(a.Genome, drove)
 		}
 	}
 	for _, b := range st.Structures {
@@ -231,6 +323,16 @@ func restoreWith(m *world.Map, data []byte, cat *catalog) (*Sim, error) {
 		s.lastHolder = st.LastHolder
 	}
 	s.knowledgeLost = st.KnowledgeLost
+	s.grown, s.pruned = st.Grown, st.Pruned
+	s.epi.restore(st.Epi)
+	s.restoreStimuli(st.Stimuli)
+	s.restoreExchange(st.Exchange)
+	s.restoreVillages(st.Villages)
+	s.restoreSharing(st.Sharing)
+	s.restoreGenetics(st.Genetics)
+	if st.Version < 9 && !s.noDisease() {
+		s.seedImmunity()
+	}
 	if ec := st.EventClock; ec != nil {
 		if ec.Eco != nil {
 			s.lastEcoEvt = ec.Eco

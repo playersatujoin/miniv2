@@ -1,0 +1,109 @@
+/* Pohon keluarga (Fase 3c): generations as rows, oldest on top. */
+.ft {
+  display: grid;
+  gap: 8px;
+}
+
+.ft-genes {
+  margin-bottom: 2px;
+}
+
+.ft-defect {
+  color: #fab219;
+}
+
+.ft-rows {
+  display: grid;
+  gap: 4px;
+}
+
+.ft-row {
+  display: grid;
+  grid-template-columns: 92px 1fr;
+  gap: 8px;
+  align-items: start;
+}
+
+.ft-level {
+  font-size: 11px;
+  color: var(--muted);
+  padding-top: 4px;
+}
+
+.ft-people {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.ft-self {
+  padding: 4px 0;
+  border-top: 1px dashed var(--border);
+  border-bottom: 1px dashed var(--border);
+}
+
+.ft-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  height: auto;
+  padding: 2px 7px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--panel-2);
+  color: var(--text);
+  font-size: 12px;
+  line-height: 1.4;
+  cursor: pointer;
+}
+
+.ft-chip:disabled {
+  cursor: default;
+  opacity: 1;
+}
+
+.ft-chip-self {
+  border-color: var(--accent);
+  font-weight: 600;
+}
+
+.ft-dead {
+  color: var(--muted);
+}
+
+.ft-forgotten {
+  border-style: dashed;
+  color: var(--muted);
+}
+
+.ft-founder {
+  border-color: #8ea0bb;
+}
+
+.ft-count {
+  margin-left: 2px;
+  padding: 0 4px;
+  border-radius: 6px;
+  background: color-mix(in srgb, #fab219 25%, transparent);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.ft-foot {
+  margin: 0;
+}
+
+.ft-rooted {
+  margin: 0;
+}
+
+.ft-depth {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ft-depth button {
+  height: auto;
+  padding: 1px 8px;
+}

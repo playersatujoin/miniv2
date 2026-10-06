@@ -57,14 +57,14 @@ const (
 	healRate      = 0.01
 	reputationAge = 300.0 // seconds for reputation to fade by ~63 %
 
-	// Fase 2: bodies burn energy three times faster than before, so a person
-	// with nothing to eat lasts about three years on the move (eight at rest)
-	// instead of a decade, and a dry season or an El Niño drought matters.
-	// Faster (4–6×) starves the first families outright on wild food; see
-	// PLAN.md, Hasil Fase 2.
+	// Fase 2: bodies burn energy faster than before (3×, eased to 2.5× in
+	// Fase 3 once births follow nursing and conception is a monthly chance),
+	// so a person with nothing to eat lasts a few years, and a dry season or
+	// an El Niño drought matters. Faster (4–6×) starves the first families
+	// outright on wild food; see PLAN.md, Hasil Fase 2.
 	// Real fasting lasts about two months; like everything here it is
 	// compressed, but now on the scale of the seasons.
-	hungerScale = 3.0
+	hungerScale = 2.5
 	// Only rivers and lakes can be drunk from, so how long a body lasts dry
 	// decides how far people can range from them. At 8× a person lasts
 	// about four years without water, a little longer than without food on
@@ -84,11 +84,8 @@ const (
 	gestation    = 0.75 * SecondsPerYear // about nine months
 	birthCost    = 0.15
 	childEnergy  = 0.8
-	twinChance   = 0.2
-	maleCooldown = 8.0
-	// After a birth a mother isn't fertile again for about two years
-	// (breastfeeding), so births come roughly three years apart.
-	femaleCooldown = 2 * SecondsPerYear
+	maleCooldown = cycle // a father may try again next month
+	// How soon a mother conceives again is up to her nursing (see body.go).
 )
 
 var validSpeeds = []int{0, 1, 2, 5, 10, 20}
@@ -160,6 +157,9 @@ type Deeds struct {
 	Harvested   int `json:"harvested"`
 	Hunted      int `json:"hunted"`
 	Tamed       int `json:"tamed"`
+	// Two-person exchanges (interact.go).
+	Talks  int `json:"talks,omitempty"`
+	Trades int `json:"trades,omitempty"`
 }
 
 // Short-lived visual effects shown in stream frames, indexed into Creature.fx.
@@ -177,44 +177,81 @@ const (
 )
 
 type Creature struct {
-	ID         int64      `json:"id"`
-	Name       string     `json:"name"`
-	Sex        Sex        `json:"sex"`
-	Generation int        `json:"generation"`
-	Mother     *Ref       `json:"mother"`
-	Father     *Ref       `json:"father"`
-	Spouse     *Ref       `json:"spouse,omitempty"`
-	BornTick   int64      `json:"bornTick"`
-	X          float64    `json:"x"`
-	Y          float64    `json:"y"`
-	Heading    float64    `json:"heading"`
-	Energy     float64    `json:"energy"`
-	Hydration  float64    `json:"hydration"`
-	Health     float64    `json:"health"`
-	Reputation float64    `json:"reputation"`
-	Pregnancy  *Pregnancy `json:"pregnancy,omitempty"`
-	Cooldown   float64    `json:"cooldown"`
-	Children   int        `json:"children"`
-	LastBirth  int64      `json:"lastBirth,omitempty"` // tick of her latest delivery
-	HouseID    int64      `json:"houseId,omitempty"`
-	Inventory  Stock      `json:"inventory,omitempty"`
-	Deeds      Deeds      `json:"deeds"`
-	Job        *Job       `json:"job,omitempty"`
-	Gathering  float64    `json:"gathering,omitempty"`   // progress towards the next gathered unit
-	ActCD      float64    `json:"actCooldown,omitempty"` // seconds until the next give/steal/attack
-	Hurt       float64    `json:"hurt,omitempty"`        // seconds the "diserang" sense stays lit
-	Offender   *Ref       `json:"offender,omitempty"`    // who last attacked or robbed them
-	Mauled     string     `json:"mauled,omitempty"`      // the animal species that last hurt them
+	ID         int64            `json:"id"`
+	Name       string           `json:"name"`
+	Sex        Sex              `json:"sex"`
+	Generation int              `json:"generation"`
+	Mother     *Ref             `json:"mother"`
+	Father     *Ref             `json:"father"`
+	Spouse     *Ref             `json:"spouse,omitempty"`
+	BornTick   int64            `json:"bornTick"`
+	X          float64          `json:"x"`
+	Y          float64          `json:"y"`
+	Heading    float64          `json:"heading"`
+	Energy     float64          `json:"energy"`
+	Hydration  float64          `json:"hydration"`
+	Health     float64          `json:"health"`
+	Reputation float64          `json:"reputation"`
+	Pregnancy  *Pregnancy       `json:"pregnancy,omitempty"`
+	Cooldown   float64          `json:"cooldown"`
+	Children   int              `json:"children"`
+	LastBirth  int64            `json:"lastBirth,omitempty"` // tick of her latest delivery
+	NursingID  int64            `json:"nursingId,omitempty"` // her youngest, whom she breastfeeds until weaning
+	HouseID    int64            `json:"houseId,omitempty"`
+	Inventory  Stock            `json:"inventory,omitempty"`
+	Deeds      Deeds            `json:"deeds"`
+	Job        *Job             `json:"job,omitempty"`
+	Relations  []Relation       `json:"relations,omitempty"`
+	Memories   []PerceivedEvent `json:"memories,omitempty"`
+	Travel     *Travel          `json:"travel,omitempty"`
+	NextRoute  int64            `json:"nextRoute,omitempty"`
+	Gathering  float64          `json:"gathering,omitempty"`   // progress towards the next gathered unit
+	ActCD      float64          `json:"actCooldown,omitempty"` // seconds until the next give/steal/attack
+	Hurt       float64          `json:"hurt,omitempty"`        // seconds the "diserang" sense stays lit
+	Offender   *Ref             `json:"offender,omitempty"`    // who last attacked or robbed them
+	Mauled     string           `json:"mauled,omitempty"`      // the animal species that last hurt them
+	// Health (Fase 3b, see disease.go): the illness they have now, their
+	// immunity to each disease (0–1), seconds still carrying malaria
+	// parasites, worm load (0–1), health an illness took that is coming
+	// back, and the germs swallowed with water since the last check.
+	Ill        *Illness  `json:"ill,omitempty"`
+	Immune     []float64 `json:"immune,omitempty"`
+	Carrier    float64   `json:"carrier,omitempty"`
+	Worms      float64   `json:"worms,omitempty"`
+	Convalesce float64   `json:"convalesce,omitempty"`
+	Swallowed  float64   `json:"swallowed,omitempty"`
+	contact    float64   // closeness to people with a respiratory infection, this check
+	struck     int64     // tick of the last blow from a person or an animal
+	// fate is a death decided this tick (old age, childbirth), for reap.
+	fate string
 	// Pace is how fast it moved last tick relative to its top speed; animals
 	// notice movement.
 	Pace float64 `json:"pace,omitempty"`
 	// Where it last drank: people remember the way back to the river.
-	WaterX float64   `json:"waterX,omitempty"`
-	WaterY float64   `json:"waterY,omitempty"`
-	Genome *Genome   `json:"genome"`
-	Mind   *Mind     `json:"mind"`
-	Hidden []float64 `json:"hidden"`
-	Bumped bool      `json:"bumped,omitempty"` // fed back as an input next tick
+	WaterX    float64    `json:"waterX,omitempty"`
+	WaterY    float64    `json:"waterY,omitempty"`
+	Genome    *Genome    `json:"genome"`
+	Mind      *Mind      `json:"mind"`
+	Hidden    []float64  `json:"hidden"`
+	Cognition *Cognition `json:"cognition,omitempty"`
+	Bumped    bool       `json:"bumped,omitempty"` // fed back as an input next tick
+
+	// Engine adaptation II (v11): moods (affect.go), a two-person exchange
+	// under way (interact.go), how the body gets about (locomotion.go) and
+	// the village they belong to (village.go).
+	Affect    Affect     `json:"affect"`
+	Chat      *Chat      `json:"chat,omitempty"`
+	Loco      Locomotion `json:"loco"`
+	VillageID int64      `json:"villageId,omitempty"`
+	// Save v12 (forage.go): food places they remember, and water carried in
+	// tubes with the germs it was drawn with.
+	FoodPlaces   []FoodPlace `json:"foodPlaces,omitempty"`
+	WaterCarried float64     `json:"waterCarried,omitempty"`
+	WaterGerms   float64     `json:"waterGerms,omitempty"`
+	// Fase 3d (nutrition.go): protein and micronutrient status, and growth lost.
+	Nutrition Nutrition `json:"nutrition,omitzero"`
+	// Fase 3c (genetics.go): inbreeding at birth.
+	Heredity Heredity `json:"heredity"`
 
 	// Culture: what this creature knows how to do, who is teaching it now,
 	// and whom it has taught.
@@ -231,6 +268,7 @@ type Creature struct {
 	GatherPick *chem.Source            `json:"gatherPick,omitempty"` // the deposit being gathered, or
 	GatherWhat string                  `json:"gatherWhat,omitempty"` // "food" from the ground, "harvest" or "fish"
 	GatherTile int                     `json:"gatherTile,omitempty"` // the field or water being harvested or fished
+	Sample     bool                    `json:"sample,omitempty"`     // carries something a station could reveal an element from
 
 	// Per-tick state, recomputed every step.
 	input     [NumInputs]float64
@@ -241,18 +279,80 @@ type Creature struct {
 	resting   bool
 	action    Action
 	fx        [numFX]int64 // tick until which each effect shows
-	wantVec   []float32    // Want indexed like tileItems, for the senses
+	wantVec   []float32    // Want indexed like tileItems, for the senses; see appeal
 	skills    skillVec     // Skills by technology index, refreshed each tick
-	sample    bool         // carries something a station could reveal an element from
 }
 
-type deathCounts struct {
+type DeathCounts struct {
 	Starvation int `json:"starvation"`
 	Thirst     int `json:"thirst"`
 	OldAge     int `json:"oldAge"`
 	Killed     int `json:"killed"`
-	Animal     int `json:"animal"` // killed by a wild animal
+	Animal     int `json:"animal"`               // killed by a wild animal
+	Childbirth int `json:"childbirth,omitempty"` // mothers who died giving birth
+	Neonatal   int `json:"neonatal,omitempty"`   // babies who died in their first weeks
+	// Infectious disease (Fase 3b).
+	Diarrhea    int `json:"diarrhea,omitempty"`
+	Malaria     int `json:"malaria,omitempty"`
+	Respiratory int `json:"respiratory,omitempty"`
+	// Engine adaptation II: fire, water and steep ground.
+	Burned  int `json:"burned,omitempty"`
+	Drowned int `json:"drowned,omitempty"`
+	Fall    int `json:"fall,omitempty"`
 }
+
+// add counts one death of cause.
+func (d *DeathCounts) add(cause string) {
+	switch cause {
+	case "starvation":
+		d.Starvation++
+	case "thirst":
+		d.Thirst++
+	case "killed":
+		d.Killed++
+	case "animal":
+		d.Animal++
+	case "childbirth":
+		d.Childbirth++
+	case "neonatal":
+		d.Neonatal++
+	case "diarrhea":
+		d.Diarrhea++
+	case "malaria":
+		d.Malaria++
+	case "respiratory":
+		d.Respiratory++
+	case "burned":
+		d.Burned++
+	case "drowned":
+		d.Drowned++
+	case "fall":
+		d.Fall++
+	default:
+		d.OldAge++
+	}
+}
+
+// plus adds up two tallies.
+func (d DeathCounts) plus(o DeathCounts) DeathCounts {
+	d.Starvation += o.Starvation
+	d.Thirst += o.Thirst
+	d.OldAge += o.OldAge
+	d.Killed += o.Killed
+	d.Animal += o.Animal
+	d.Childbirth += o.Childbirth
+	d.Neonatal += o.Neonatal
+	d.Diarrhea += o.Diarrhea
+	d.Malaria += o.Malaria
+	d.Respiratory += o.Respiratory
+	d.Burned += o.Burned
+	d.Drowned += o.Drowned
+	d.Fall += o.Fall
+	return d
+}
+
+// disease is the deaths from infectious disease.
+func (d DeathCounts) disease() int { return d.Diarrhea + d.Malaria + d.Respiratory }
 
 type HistoryPoint struct {
 	Time          float64 `json:"time"`
@@ -265,6 +365,12 @@ type HistoryPoint struct {
 	Houses        int     `json:"houses"`
 	AvgBrainSize  float64 `json:"avgBrainSize"`
 	AvgSkill      float64 `json:"avgSkill"`
+	// Neurons grown during life: the average per person, the biggest brain,
+	// and the running totals of neurons grown and pruned (v7).
+	AvgGrown float64 `json:"avgGrown,omitempty"`
+	MaxBrain int     `json:"maxBrain,omitempty"`
+	Grown    int64   `json:"grown,omitempty"`
+	Pruned   int64   `json:"pruned,omitempty"`
 }
 
 type Event struct {
@@ -312,6 +418,11 @@ type Sim struct {
 	creatures []*Creature
 	byID      map[int64]*Creature
 	grid      grid
+	// space finds who touches whom (personal space), on a finer grid; shove is its scratch.
+	space grid
+	shove [][2]float64
+	// Neurons grown and pruned in all lives so far.
+	grown, pruned int64
 
 	structures    []*Structure
 	structByID    map[int64]*Structure
@@ -324,8 +435,11 @@ type Sim struct {
 	// stopped a conception (it should never bite in a normal world).
 	eco        *ecology.Ecology
 	ecoHistory []EcoPoint
-	capHits    int
-	lastEcoEvt map[string]float64 // when each kind of farming/hunting event was last reported
+	// waterHistory: the rivers twice a simulated month, for the last twenty
+	// years (the seasons need a finer clock than ecoHistory).
+	waterHistory []WaterPoint
+	capHits      int
+	lastEcoEvt   map[string]float64 // when each kind of farming/hunting event was last reported
 
 	elements map[string]*Discovery
 	techs    map[string]*Discovery
@@ -342,7 +456,7 @@ type Sim struct {
 
 	births         int
 	deaths         int
-	deathsBy       deathCounts
+	deathsBy       DeathCounts
 	crimes         int
 	kindness       int
 	kills          int
@@ -358,13 +472,34 @@ type Sim struct {
 
 	opts  Options
 	stats *demography
+	// onDeath, if set, hears of every death (for tests and diagnostics).
+	onDeath func(c *Creature, cause string)
+	// Fase 3b: mosquitoes, worm eggs and the epidemic curve.
+	epi epidemiology
+	// Talks, rumours and trades so far (interact.go).
+	exch exchangeState
 
 	frames broadcaster
+	// replay records the last minutes as streamed (replay.go); not saved.
+	replay recorder
+	// Engine adaptation II state that lives on the world.
+	village villageSys // village.go
+	stimuli stimWorld  // stimuli.go: lasting stimuli and bodies
+	share   sharing    // sharing.go: carcasses and what was shared
+	// Fase 3c: the pedigree, inbreeding and its statistics (geneview.go).
+	genetics genetics
+	// Source format is only used to archive a save before its first migration.
+	loadedVersion     int
+	migrationOriginal []byte
 }
 
 // Options switch rules off for experiments (A/B soak runs). The zero value is
 // the normal world.
 type Options struct {
+	// Experiments only: the normal world perceives local events and navigates.
+	NoPerception bool `json:"noPerception,omitempty"`
+	NoNavigation bool `json:"noNavigation,omitempty"`
+	NoAIBudget   bool `json:"noAIBudget,omitempty"`
 	// NoCrime stops anyone from stealing or attacking.
 	NoCrime bool `json:"noCrime,omitempty"`
 	// NoInstincts gives the first couple random brains without inborn reflexes.
@@ -385,10 +520,47 @@ type Options struct {
 	NoFarming bool `json:"noFarming,omitempty"`
 	NoClimate bool `json:"noClimate,omitempty"`
 	NoFauna   bool `json:"noFauna,omitempty"`
+
+	// NoPersonalSpace lets bodies overlap, as before personal space was added.
+	NoPersonalSpace bool `json:"noPersonalSpace,omitempty"`
+	// NoNeurogenesis keeps every brain at its inherited size for life.
+	NoNeurogenesis bool `json:"noNeurogenesis,omitempty"`
+	// NoWaterCycle keeps rivers and lakes full all year, as before the water cycle.
+	NoWaterCycle bool `json:"noWaterCycle,omitempty"`
+
+	// Fase 3 switches. NoDisease: nobody falls ill or gets worms.
+	// NoSanitation: latrines keep nothing out of the water and the soil,
+	// and wells are no cleaner than a hole dug by the river.
+	NoDisease    bool `json:"noDisease,omitempty"`
+	NoSanitation bool `json:"noSanitation,omitempty"`
+	// NoAttachment lets young children roam alone instead of staying with
+	// their mother or another carer.
+	NoAttachment bool `json:"noAttachment,omitempty"`
+
+	// Engine adaptation II switches: lasting stimuli, moods, two-person
+	// exchanges (talk, gossip, trade), fire, travel over water and steep
+	// ground, and villages with leaders.
+	NoStimuli  bool `json:"noStimuli,omitempty"`
+	NoAffect   bool `json:"noAffect,omitempty"`
+	NoExchange bool `json:"noExchange,omitempty"`
+	NoFire     bool `json:"noFire,omitempty"`
+	NoMobility bool `json:"noMobility,omitempty"`
+	NoVillages bool `json:"noVillages,omitempty"`
+
+	// NoNutrition: food is only calories, as before Fase 3d.
+	NoNutrition bool `json:"noNutrition,omitempty"`
+	// NoSharing: meat a hunter can't carry vanishes, nobody eats from
+	// others' food, only a field's family may harvest it, granaries serve
+	// only their family, and nobody knows land beyond sight (sharing.go).
+	NoSharing bool `json:"noSharing,omitempty"`
+	// NoGenetics (Fase 3c): recessive disorders do no harm and the
+	// mate-choice senses (kinship, looks) stay 0. Genes and the pedigree
+	// are still tracked, for comparison.
+	NoGenetics bool `json:"noGenetics,omitempty"`
 }
 
 func (o Options) ecology() ecology.Options {
-	return ecology.Options{NoClimate: o.NoClimate, NoFauna: o.NoFauna}
+	return ecology.Options{NoClimate: o.NoClimate, NoFauna: o.NoFauna, NoWaterCycle: o.NoWaterCycle, NoFire: o.NoFire}
 }
 
 func (s *Sim) noPlasticity() bool { return s.opts.NoLearning || s.opts.NoPlasticity }
@@ -422,6 +594,7 @@ func newSimWith(m *world.Map, seed uint64, cat *catalog) *Sim {
 		lastLearnEvent: -learnEventGap,
 	}
 	s.setTerrain(newTerrain(m))
+	s.epi.init(m.Width, m.Height)
 	s.eco = ecology.New(ecology.LandFromMap(m), s.rng, ecology.Options{}, 0)
 	if cat.newGeology != nil {
 		s.geo = cat.newGeology(m)
@@ -472,8 +645,16 @@ func (s *Sim) age(c *Creature) float64 { return float64(s.tick-c.BornTick) * dt 
 
 func (s *Sim) adult(c *Creature) bool { return s.age(c) >= adultAge }
 
+// fertile reports whether c could conceive (or father a child) now: a woman
+// before her menopause who is neither pregnant nor fully nursing.
 func (s *Sim) fertile(c *Creature) bool {
-	return s.adult(c) && c.Pregnancy == nil && c.Cooldown <= 0
+	if !s.adult(c) || c.Pregnancy != nil || c.Cooldown > 0 {
+		return false
+	}
+	if c.Sex == Female {
+		return s.ageYears(c) < c.Genome.Traits.Menopause && s.nursingBlock(c) < 1
+	}
+	return true
 }
 
 func (s *Sim) add(c *Creature) {
@@ -529,13 +710,25 @@ func (s *Sim) Run(ctx context.Context) {
 		for range s.speed {
 			s.step()
 		}
-		var frame []byte
+		var frame, structures []byte
+		var tick, structVersion int64
+		var at float64
+		keep := false
 		if publish = !publish; publish {
 			frame = s.encodeFrame()
+			if keep = s.replay.replayDue(); keep {
+				tick, at, structVersion = s.tick, s.time(), s.structVersion
+				if !s.replay.knowsStructures(structVersion) {
+					structures = s.encodeStructures()
+				}
+			}
 		}
 		s.mu.Unlock()
 		if frame != nil {
 			s.frames.publish(frame)
+		}
+		if keep {
+			s.replay.record(tick, at, frame, structVersion, structures)
 		}
 	}
 }
@@ -573,6 +766,7 @@ func (s *Sim) step() {
 	for _, ev := range s.eco.TakeEvents() {
 		s.event(ev.Kind, ev.Text, 0)
 	}
+	s.fireEffects()
 	for _, c := range s.creatures {
 		if c.Health <= 0 {
 			continue // killed earlier this tick
@@ -580,16 +774,24 @@ func (s *Sim) step() {
 		if (s.tick+c.ID)%abilityEvery == 0 {
 			s.updateAbilities(c)
 		}
-		s.sense(c)
 		s.act(c)
 	}
+	s.exchange()
+	s.personalSpace()
+	s.disease()
+	s.nourish()
+	s.senesce()
 	s.mate()
 	s.gestate()
 	s.reap()
+	s.stimuliTick()
 	if s.tick%TicksPerSecond == 0 {
 		s.stats.expose(s)
 		s.cultureTick()
 		s.spoil()
+		s.villageTick()
+		s.shareSecond()
+		s.geneticsTick()
 		s.eco.Current().Population = len(s.creatures)
 	}
 	if len(s.creatures) == 0 && !s.opts.NoHumans {
@@ -599,6 +801,9 @@ func (s *Sim) step() {
 	if s.tick%historyEvery == 0 {
 		s.sample()
 		s.sampleEcology()
+	}
+	if s.tick%waterEvery == 0 {
+		s.sampleWater()
 	}
 	if s.tick%demographyEvery == 0 {
 		s.stats.sample(s)
@@ -659,6 +864,11 @@ func (s *Sim) mate() {
 			s.capHits++
 			continue
 		}
+		// One try a month: conception is a chance, by her age and her body.
+		if s.rng.Float64() >= s.conceptionChance(f)*s.fertilityGene(best) {
+			f.Cooldown = cycle
+			continue
+		}
 		f.Pregnancy = &Pregnancy{
 			Remaining:        gestation,
 			Father:           Ref{best.ID, best.Name},
@@ -685,16 +895,33 @@ func (s *Sim) gestate() {
 		}
 		f.Pregnancy = nil
 		n := 1
-		if s.rng.Float64() < twinChance {
+		if s.rng.Float64() < twinRate {
 			n = 2
 		}
 		s.stats.delivery(s, f, n)
 		s.eco.Current().Births += n
+		first := len(born)
 		for range n {
-			born = append(born, s.newChild(f, p))
+			c := s.newChild(f, p)
+			if !s.opts.NoDisease && s.rng.Float64() < s.neonatalDeathRisk(f, n) {
+				c.fate = "neonatal"
+			}
+			born = append(born, c)
+		}
+		// She nurses the baby that lived (if one did).
+		f.NursingID = born[first].ID
+		for _, c := range born[first:] {
+			if c.fate == "" {
+				f.NursingID = c.ID
+				break
+			}
 		}
 		f.Energy -= birthCost * float64(n)
-		f.Cooldown = femaleCooldown
+		f.Cooldown = postpartum
+		// Childbirth can kill the mother; her babies are born all the same.
+		if s.rng.Float64() < s.childbirthRisk(f, n) {
+			f.fate = "childbirth"
+		}
 		f.Children += n
 		if father := s.byID[p.Father.ID]; father != nil {
 			father.Children += n
@@ -738,6 +965,7 @@ func (s *Sim) newChild(mother *Creature, p *Pregnancy) *Creature {
 		Genome:     g,
 	}
 	s.giveBrain(c)
+	s.bornNourished(c, mother)
 	// Children grow up in their mother's home, else their father's, and
 	// know where she fetches water.
 	c.HouseID = mother.HouseID
@@ -745,6 +973,7 @@ func (s *Sim) newChild(mother *Creature, p *Pregnancy) *Creature {
 	if father := s.byID[p.Father.ID]; c.HouseID == 0 && father != nil {
 		c.HouseID = father.HouseID
 	}
+	s.inheritGenes(c, mother, p)
 	s.nextID++
 	return c
 }
@@ -754,7 +983,7 @@ func (s *Sim) reap() {
 	alive := s.creatures[:0]
 	var dead []*Creature
 	for _, c := range s.creatures {
-		if c.Health <= 0 || c.Energy <= 0 || c.Hydration <= 0 || s.age(c) >= c.Genome.Traits.Lifespan {
+		if c.Health <= 0 || c.Energy <= 0 || c.Hydration <= 0 || c.fate != "" {
 			dead = append(dead, c)
 		} else {
 			alive = append(alive, c)
@@ -763,8 +992,12 @@ func (s *Sim) reap() {
 	clear(s.creatures[len(alive):])
 	s.creatures = alive
 	for _, c := range dead {
-		cause := "oldAge"
+		cause := c.fate
+		if cause == "" {
+			cause = s.diseaseDeath(c)
+		}
 		switch {
+		case cause != "":
 		case c.Health <= 0 && c.Mauled != "":
 			cause = "animal"
 		case c.Health <= 0:
@@ -783,21 +1016,35 @@ func (s *Sim) die(c *Creature, cause string) {
 	s.deaths++
 	age := s.age(c)
 	s.stats.death(s, c, cause)
+	s.geneticsDeath(c)
+	if s.onDeath != nil {
+		s.onDeath(c, cause)
+	}
 	s.eco.Current().Deaths++
 	var how string
+	s.deathsBy.add(cause)
 	switch cause {
 	case "starvation":
-		s.deathsBy.Starvation++
 		s.eco.Current().Starved++
 		how = "mati kelaparan"
 	case "animal":
-		s.deathsBy.Animal++
 		how = animalKill(c.Mauled)
+	case "childbirth":
+		how = "meninggal saat melahirkan"
+	case "neonatal":
+		how = "meninggal beberapa hari setelah lahir"
+	case "diarrhea", "malaria", "respiratory":
+		how = "meninggal karena " + c.Ill.Disease.name()
+		s.epi.deaths++
 	case "thirst":
-		s.deathsBy.Thirst++
 		how = "mati kehausan"
+	case "burned":
+		how = "tewas terbakar"
+	case "drowned":
+		how = "tenggelam"
+	case "fall":
+		how = "tewas terjatuh"
 	case "killed":
-		s.deathsBy.Killed++
 		how = "dibunuh"
 		if c.Offender != nil {
 			how += " oleh " + c.Offender.Name
@@ -806,10 +1053,11 @@ func (s *Sim) die(c *Creature, cause string) {
 			}
 		}
 	default:
-		s.deathsBy.OldAge++
 		how = "meninggal karena usia tua"
 	}
 	s.addEvent("death", fmt.Sprintf("%s %s %s pada usia %s", c.Name, c.Sex.symbol(), how, fmtAge(age)), c.ID, cause == "killed" || cause == "animal")
+	s.leaveCorpse(c, cause)
+	s.mourn(c)
 	s.leaveBelongings(c)
 	s.inherit(c)
 	d := c.Deeds
@@ -856,6 +1104,7 @@ func (s *Sim) genesis() {
 		hx, hy = nx, ny
 	}
 	hawa := s.spawnAdult(s.foundingGenome(), Female, "Hawa", hx, hy)
+	s.foundGenes(adam, hawa)
 	s.event("genesis", fmt.Sprintf("Era %d dimulai: Adam %s", s.era, adam.Sex.symbol()), adam.ID)
 	s.event("genesis", fmt.Sprintf("Era %d dimulai: Hawa %s", s.era, hawa.Sex.symbol()), hawa.ID)
 }
@@ -910,6 +1159,7 @@ func (s *Sim) event(kind, text string, creatureID int64) { s.addEvent(kind, text
 func (s *Sim) addEvent(kind, text string, creatureID int64, violent bool) {
 	s.nextEvent++
 	s.events = append(s.events, Event{ID: s.nextEvent, Time: s.time(), Kind: kind, Text: text, CreatureID: creatureID, Violent: violent})
+	s.replay.mark(ReplayMark{Tick: s.tick, Time: s.time(), Kind: kind, Text: text, CreatureID: creatureID, Importance: importance(kind, violent)})
 	if n := len(s.events) - eventsMax; n > 0 {
 		s.events = slices.Delete(s.events, 0, n)
 	}
@@ -945,6 +1195,10 @@ func (s *Sim) sample() {
 		Houses:        s.houseCount(),
 		AvgBrainSize:  math.Round(s.avgBrainSize()*10) / 10,
 		AvgSkill:      math.Round(s.avgSkill()*1000) / 1000,
+		AvgGrown:      math.Round(s.avgGrown()*10) / 10,
+		MaxBrain:      s.maxBrain(),
+		Grown:         s.grown,
+		Pruned:        s.pruned,
 	})
 	if n := len(s.history) - historyMax; n > 0 {
 		s.history = slices.Delete(s.history, 0, n)
@@ -982,10 +1236,15 @@ func (s *Sim) UpdateMap(m *world.Map) {
 }
 
 // relocateStranded moves creatures standing on blocked tiles to the nearest
-// walkable one.
+// walkable one. Someone wading, swimming or climbing (locomotion.go) is
+// where a body can be and stays there, so a restored world carries on
+// exactly; only walls, trees and the like (or the map's edge) displace.
 func (s *Sim) relocateStranded() {
 	for _, c := range s.creatures {
 		if !s.terrain.blockedAt(c.X, c.Y) {
+			continue
+		}
+		if i, ok := s.terrain.indexAt(c.X, c.Y); ok && !s.opts.NoMobility && s.terrain.mobilityAt(i) != mobNever {
 			continue
 		}
 		if x, y, ok := s.terrain.nearestFree(c.X, c.Y); ok {
@@ -1030,15 +1289,35 @@ func (s *Sim) giveBrain(c *Creature) {
 	c.Mind.Wellbeing = wellbeing(c)
 }
 
+// avgBrainSize is the mean number of neurons people think with, inherited and grown.
 func (s *Sim) avgBrainSize() float64 {
 	if len(s.creatures) == 0 {
 		return 0
 	}
 	sum := 0
 	for _, c := range s.creatures {
-		sum += c.Genome.Hidden
+		sum += brainSize(c)
 	}
 	return float64(sum) / float64(len(s.creatures))
+}
+
+func (s *Sim) avgGrown() float64 {
+	if len(s.creatures) == 0 {
+		return 0
+	}
+	sum := 0
+	for _, c := range s.creatures {
+		sum += c.Mind.Grown
+	}
+	return float64(sum) / float64(len(s.creatures))
+}
+
+func (s *Sim) maxBrain() int {
+	top := 0
+	for _, c := range s.creatures {
+		top = max(top, brainSize(c))
+	}
+	return top
 }
 
 // avgSkill is the mean of each adult's best skill.

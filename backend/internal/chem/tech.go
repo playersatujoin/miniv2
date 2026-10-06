@@ -8,6 +8,14 @@ import (
 var techs = []Tech{
 	{ID: "api", Name: "Api", Description: "Membakar kayu menjadi arang; dasar memasak dan membakar tanah liat.", Tier: 0},
 	{ID: "alat_batu", Name: "Alat Batu", Description: "Beliung dan tombak dari batu, kayu dan tali. Membuka penambangan bijih.", Tier: 0},
+	// Watercraft are older than farming and pottery: people crossed open sea
+	// to Sahul at least 50,000 years ago (O'Connell et al. 2018; Clarkson et
+	// al. 2017 argue 65,000) and hominins reached Flores about a million
+	// years ago (Brumm et al. 2010).
+	// Carrying water: ostrich-eggshell flasks by about 60,000 years ago in
+	// southern Africa (Texier et al. 2010); bamboo and gourds in Asia.
+	{ID: "wadah_air", Name: "Wadah Air", Description: "Ruas bambu atau labu kering untuk membawa air minum saat jauh dari sungai.", Tier: 0, Requires: []string{"alat_batu"}},
+	{ID: "pelayaran", Name: "Pelayaran Rakit", Description: "Batang kayu atau bambu diikat tali menjadi rakit untuk menyeberangi sungai, danau dan selat.", Tier: 0, Requires: []string{"alat_batu"}},
 	{ID: "tembikar", Name: "Tembikar", Description: "Membakar tanah liat menjadi bata.", Tier: 0, Requires: []string{"api"}},
 	{ID: "pertanian", Name: "Pertanian", Description: "Menanam dan memanen padi, talas, ubi, pisang, kelapa dan sagu. Ditemukan saat panen pertama dari tanaman yang sengaja ditanam.", Tier: 0},
 	{ID: "peternakan", Name: "Peternakan", Description: "Menjinakkan dan memelihara ayam, babi dan kerbau. Ditemukan saat hewan liar pertama menjadi jinak.", Tier: 0},
@@ -44,6 +52,11 @@ var structures = []StructureKind{
 	// Lined wells came with settled farming villages in the Neolithic;
 	// foragers moved to the water instead.
 	{ID: "sumur", Name: "Sumur", Cost: map[ItemID]int{"batu": 8, "tali": 2}, Tech: "pertanian", Well: true},
+	// A dug pit with a floor of wood or bamboo and a screen of woven fibre: pit
+	// latrines came with settled villages (Skara Brae, about 3000 BC; the
+	// Indus cities had drains). It keeps a family's filth out of the
+	// stream and the yard, without anyone knowing about germs.
+	{ID: "jamban", Name: "Jamban", Cost: map[ItemID]int{"kayu": 3, "serat": 3}, Tech: "pertanian", Latrine: true},
 	// Clay tablets: writing began with fired clay, long before paper.
 	{ID: "perpustakaan", Name: "Perpustakaan", Cost: map[ItemID]int{"bata": 8, "kayu": 4, "tanah_liat": 6}, Tech: "tembikar", Teaches: "tulisan", Library: true},
 	{ID: "tungku", Name: "Tungku", Cost: map[ItemID]int{"batu": 8, "tanah_liat": 4, "bata": 2}, Tech: "tembikar", Teaches: "peleburan", Tier: 1},

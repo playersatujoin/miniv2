@@ -97,6 +97,9 @@ type GeoModel struct {
 	Plutons   []Pluton
 	PlutonOf  []int16 // per tile: index into Plutons for granite and pegmatite, else -1
 	RiverOf   []int16 // per tile: index into Rivers for river channel tiles, else -1
+	// Down is where each tile's water flows next on its way to the sea (-1:
+	// the sea itself), across closed hollows as a filling lake would.
+	Down      []int32
 	Elevation []float64
 	Moisture  []float64
 	// Elevation thresholds the generator paints with: below SeaLevel is
@@ -766,6 +769,7 @@ func (g *GeoModel) traceRivers(rng *rand.Rand, names *namer) {
 	want := max(2, min(6, int(g.size)/40))
 	minSpacing := math.Max(6, g.size/6)
 	down, _ := g.drainage()
+	g.Down = down
 	var sources []Point
 
 	high := func(i int) bool {

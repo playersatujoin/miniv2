@@ -31,7 +31,7 @@ func TestSameSeedAndSaveRestoreReplayExactly(t *testing.T) {
 	var a *Sim
 	var seed uint64
 	farmers, remember := 0, 0
-	for seed = 1; seed <= 12; seed++ {
+	for seed = 1; seed <= 32; seed++ {
 		a = New(island(), seed)
 		a.Advance(before * TicksPerSecond)
 		farmers, remember = 0, 0
@@ -48,7 +48,7 @@ func TestSameSeedAndSaveRestoreReplayExactly(t *testing.T) {
 		}
 	}
 	if len(a.eco.Plots()) == 0 || remember == 0 {
-		t.Fatal("no world among seeds 1–12 farms by the time it is saved")
+		t.Fatal("no world among seeds 1–32 farms by the time it is saved")
 	}
 	twin := New(island(), seed)
 	twin.Advance(before * TicksPerSecond)

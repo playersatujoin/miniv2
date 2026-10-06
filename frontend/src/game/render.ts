@@ -1,6 +1,7 @@
 // Procedural tile art. Everything is drawn with canvas primitives so the game
 // needs no image assets; tiles are looked up by their `key` from the backend.
 
+import { MOOD_COLORS, MOOD_SHOWN } from '../components/sim/moods'
 import { FLAG, type Sex } from '../sim/protocol'
 
 export const TILE = 32
@@ -24,8 +25,7 @@ export function shade(hex: string, amount: number): string {
   const hit = shadeCache.get(cacheKey)
   if (hit) return hit
   const n = parseInt(hex.slice(1, 7), 16)
-  const mix = (c: number) =>
-    Math.round(amount >= 0 ? c + (255 - c) * amount : c * (1 + amount))
+  const mix = (c: number) => Math.round(amount >= 0 ? c + (255 - c) * amount : c * (1 + amount))
   const out = `rgb(${mix(n >> 16)},${mix((n >> 8) & 255)},${mix(n & 255)})`
   shadeCache.set(cacheKey, out)
   return out
@@ -234,6 +234,141 @@ export function tintLithology(ctx: CanvasRenderingContext2D, color: string, px: 
   ctx.globalAlpha = 1
 }
 
+/**
+ * A river or lake tile as the water cycle leaves it (see ecology/hydrology.go):
+ * the bed of sand and pebbles shows as the water drops. Running water narrows
+ * to a channel down the middle (towards the neighbouring water), pools stand
+ * in the deepest hollows, a bed with water in its sand is dark and damp with
+ * a hole dug in it, and a dry one is cracked mud. `wet` tells which
+ * neighbours (N, E, S, W) hold water, for the channel's arms.
+ */
+/** Mixes two #rrggbb colours: t = 0 gives a, 1 gives b. */
+function mixHex(a: string, b: string, t: number) {
+  const pa = parseInt(a.slice(1), 16)
+  const pb = parseInt(b.slice(1), 16)
+  const ch = (shift: number) => Math.round(((pa >> shift) & 255) * (1 - t) + ((pb >> shift) & 255) * t)
+  return `rgb(${ch(16)},${ch(8)},${ch(0)})`
+}
+
+/**
+ * Murk over a full river or lake tile fouled with filth: a green-brown film,
+ * thicker the fouler, with a little scum where it gathers.
+ */
+export function drawMurk(ctx: CanvasRenderingContext2D, tx: number, ty: number, px: number, py: number, foul: number) {
+  const f = Math.min(1, foul * 1.4)
+  ctx.fillStyle = `rgba(96,92,40,${0.18 + 0.5 * f})`
+  ctx.fillRect(px, py, TILE, TILE)
+  if (f < 0.35) return
+  ctx.fillStyle = `rgba(150,140,70,${0.35 * f})`
+  for (let i = 0; i < 3; i++) {
+    ctx.beginPath()
+    ctx.ellipse(
+      px + 5 + hash(tx, ty, 610 + i) * (TILE - 10),
+      py + 5 + hash(tx, ty, 620 + i) * (TILE - 10),
+      2.5 + 3 * hash(tx, ty, 630 + i),
+      1.4,
+      hash(tx, ty, 640 + i) * 3,
+      0,
+      Math.PI * 2,
+    )
+    ctx.fill()
+  }
+}
+
+export function drawRiverbed(
+  ctx: CanvasRenderingContext2D,
+  tx: number,
+  ty: number,
+  px: number,
+  py: number,
+  state: number,
+  level: number,
+  wet: number,
+  foul = 0,
+) {
+  const bed = state <= 1 ? (state === 1 ? '#8f7a52' : '#a88f63') : '#b49d6d'
+  ctx.fillStyle = shade(bed, (hash(tx, ty, 300) - 0.5) * 0.08)
+  ctx.fillRect(px, py, TILE, TILE)
+  // Pebbles.
+  for (let i = 0; i < 6; i++) {
+    ctx.fillStyle = hash(tx, ty, 310 + i) < 0.5 ? '#8d8576' : '#c7bba0'
+    ctx.beginPath()
+    ctx.ellipse(
+      px + 3 + hash(tx, ty, 320 + i) * (TILE - 6),
+      py + 3 + hash(tx, ty, 330 + i) * (TILE - 6),
+      1.6,
+      1.1,
+      hash(tx, ty, 340 + i) * 3,
+      0,
+      Math.PI * 2,
+    )
+    ctx.fill()
+  }
+  // Water fouled with filth turns a murky green-brown.
+  const water = mixHex('#3b78b8', '#6b6a34', Math.min(1, foul * 1.4))
+  if (state === 3) {
+    // A channel: from the middle towards every neighbour that holds water, as wide as the flow.
+    const w = 6 + (TILE - 6) * level
+    const c = TILE / 2
+    ctx.fillStyle = water
+    ctx.beginPath()
+    ctx.ellipse(px + c, py + c, w / 2, w / 2, 0, 0, Math.PI * 2)
+    ctx.fill()
+    const arms = wet || 0b1010
+    if (arms & 1) ctx.fillRect(px + c - w / 2, py, w, c)
+    if (arms & 4) ctx.fillRect(px + c - w / 2, py + c, w, c)
+    if (arms & 2) ctx.fillRect(px + c, py + c - w / 2, c, w)
+    if (arms & 8) ctx.fillRect(px, py + c - w / 2, c, w)
+    return
+  }
+  if (state === 2) {
+    // Pools in the hollows, shrinking as they are used up.
+    const n = 1 + Math.floor(hash(tx, ty, 350) * 3)
+    for (let i = 0; i < n; i++) {
+      const r = (3 + 7 * hash(tx, ty, 360 + i)) * Math.max(0.25, Math.min(1, level * 3.3))
+      ctx.fillStyle = shade(water, -0.1)
+      ctx.beginPath()
+      ctx.ellipse(
+        px + 7 + hash(tx, ty, 370 + i) * (TILE - 14),
+        py + 7 + hash(tx, ty, 380 + i) * (TILE - 14),
+        r,
+        r * 0.7,
+        hash(tx, ty, 390 + i) * 3,
+        0,
+        Math.PI * 2,
+      )
+      ctx.fill()
+    }
+    return
+  }
+  if (state === 1) {
+    // Damp sand, and a hole dug down to the water (a belik).
+    const hx = px + 8 + hash(tx, ty, 400) * (TILE - 16)
+    const hy = py + 8 + hash(tx, ty, 401) * (TILE - 16)
+    ctx.fillStyle = '#6b5a3c'
+    ctx.beginPath()
+    ctx.ellipse(hx, hy, 4.5, 3.4, 0, 0, Math.PI * 2)
+    ctx.fill()
+    ctx.fillStyle = '#2f5f86'
+    ctx.beginPath()
+    ctx.ellipse(hx, hy + 0.5, 2.4, 1.6, 0, 0, Math.PI * 2)
+    ctx.fill()
+    return
+  }
+  // Dry: mud cracked into plates.
+  ctx.strokeStyle = shade(bed, -0.3)
+  ctx.lineWidth = 0.8
+  ctx.beginPath()
+  for (let i = 0; i < 4; i++) {
+    const sx = px + hash(tx, ty, 410 + i) * TILE
+    const sy = py + hash(tx, ty, 420 + i) * TILE
+    ctx.moveTo(sx, sy)
+    ctx.lineTo(sx + (hash(tx, ty, 430 + i) - 0.5) * 18, sy + (hash(tx, ty, 440 + i) - 0.5) * 18)
+    ctx.lineTo(sx + (hash(tx, ty, 450 + i) - 0.5) * 24, sy + (hash(tx, ty, 460 + i) - 0.5) * 24)
+  }
+  ctx.stroke()
+}
+
 /** Fills a strip of `size` pixels along one side of a tile. */
 function edge(ctx: CanvasRenderingContext2D, px: number, py: number, dx: number, dy: number, size: number) {
   if (dy === -1) ctx.fillRect(px, py, TILE, size)
@@ -393,7 +528,13 @@ const SPRITE_PAINTERS: Record<string, (ctx: Ctx, v: number) => void> = {
     circle(ctx, T + 4, B - 12, 5, '#3f8f3a')
     circle(ctx, T - 2, B - 15, 2.5, '#5cad4f')
     if (v === 1) {
-      for (const [x, y] of [[-5, -8], [3, -14], [6, -7], [-1, -11]]) circle(ctx, T + x, B + y, 1.5, '#d94a4a')
+      for (const [x, y] of [
+        [-5, -8],
+        [3, -14],
+        [6, -7],
+        [-1, -11],
+      ])
+        circle(ctx, T + x, B + y, 1.5, '#d94a4a')
     }
   },
   wall(ctx) {
@@ -524,6 +665,15 @@ export type CreatureLook = {
   /** Stable per-creature number used to pick skin and hair colours. */
   variant: number
   time: number
+  /** The mood on their face (MOOD code) and how strongly, 0–1. */
+  mood?: number
+  moodStrength?: number
+  /** Zoomed in: small details (a leader's banner, a mood) are worth drawing. */
+  detail?: boolean
+  /** Reduced motion: no shaking or flashing. */
+  still?: boolean
+  /** A talk or trade glyph is already drawn between this person and their partner. */
+  exchangeShown?: boolean
 }
 
 /** Draw scale of a creature: its body size, shrunk while it is still a child. */
@@ -531,13 +681,176 @@ export function creatureScale(size: number, flags: number) {
   return size * (flags & FLAG.child ? 0.65 : 1)
 }
 
+/** Rings spreading on the water round someone wading, swimming or afloat; (x, y) in world pixels. */
+export function drawRipples(ctx: Ctx, x: number, y: number, s: number, time: number, still = false, width = 9) {
+  ctx.save()
+  ctx.strokeStyle = '#e8f4ff'
+  ctx.lineWidth = 0.9
+  for (let i = 0; i < 2; i++) {
+    const ph = still ? 0.35 + i * 0.3 : (time * 0.7 + i * 0.5) % 1
+    ctx.globalAlpha = 0.55 * (1 - ph)
+    ctx.beginPath()
+    ctx.ellipse(x, y, (width * 0.7 + ph * width * 0.8) * s, (2.4 + ph * 2.6) * s, 0, 0, Math.PI * 2)
+    ctx.stroke()
+  }
+  ctx.restore()
+}
+
+/** A small raft of lashed logs, centred on (x, y) in world pixels. */
+function drawRaft(ctx: Ctx, x: number, y: number, s: number) {
+  ctx.save()
+  ctx.translate(x, y)
+  ctx.scale(s, s)
+  ellipse(ctx, 0, 1.5, 15, 5, 'rgba(8,20,40,0.28)')
+  for (let i = 0; i < 5; i++) {
+    const ly = -5 + i * 2.4
+    ctx.fillStyle = i % 2 ? '#8a5f34' : '#9c6c3c'
+    ctx.beginPath()
+    ctx.roundRect(-13 + (i % 2) * 0.8, ly, 26 - (i % 2) * 1.6, 2.6, 1.3)
+    ctx.fill()
+  }
+  ctx.fillStyle = '#d9c38c'
+  ctx.fillRect(-8, -5.4, 1.4, 12)
+  ctx.fillRect(6.6, -5.4, 1.4, 12)
+  ctx.restore()
+}
+
+/**
+ * Someone out of their depth: only the head and shoulders above the water, arms
+ * reaching over in turn with a splash. (x, y) is where their feet would be.
+ */
+function drawSwimmer(ctx: Ctx, x: number, y: number, s: number, c: CreatureLook, skin: string, hair: string, cloth: string) {
+  const female = c.sex === 'female'
+  const t = c.still ? 0.25 : c.time
+  drawRipples(ctx, x, y - 4 * s, s, c.time, c.still, 11)
+  ctx.save()
+  ctx.translate(x, y)
+  ctx.scale(s, s)
+  const bob = c.still ? 0 : Math.sin(t * 3 + c.variant) * 0.7
+  // Shoulders just breaking the surface.
+  ellipse(ctx, 0, -4 + bob, 7, 2.6, cloth)
+  // One arm reaches forward over the water, then the other.
+  const stroke = Math.sin(t * 4.2 + c.variant)
+  const side = stroke > 0 ? 1 : -1
+  const reach = Math.abs(stroke)
+  ctx.strokeStyle = skin
+  ctx.lineWidth = 2
+  ctx.lineCap = 'round'
+  ctx.beginPath()
+  ctx.moveTo(side * 6, -4 + bob)
+  ctx.quadraticCurveTo(side * 10, -8 - reach * 5 + bob, side * (8 + reach * 5), -4 + bob)
+  ctx.stroke()
+  ctx.lineCap = 'butt'
+  if (!c.still && reach > 0.7) {
+    ctx.fillStyle = 'rgba(240,248,255,0.85)'
+    for (let i = 0; i < 3; i++) ctx.fillRect(side * (11 + i * 1.8), -6 - i * 1.4 + bob, 1.3, 1.3)
+  }
+  const hy = -9 + bob
+  if (female) {
+    ctx.fillStyle = hair
+    ctx.beginPath()
+    ctx.roundRect(-6.5, hy - 2, 13, 8, 4)
+    ctx.fill()
+  }
+  circle(ctx, 0, hy, 5.8, skin)
+  ctx.fillStyle = hair
+  ctx.beginPath()
+  ctx.arc(0, hy, 6.1, Math.PI, 0)
+  ctx.fill()
+  ctx.fillStyle = '#222'
+  ctx.fillRect(-2.6, hy + 0.8, 1.6, 1.8)
+  ctx.fillRect(1, hy + 0.8, 1.6, 1.8)
+  ctx.restore()
+}
+
+/** What a body lying on the ground looks like (someone who just fell, or a body where someone died). */
+export type LyingLook = {
+  heading: number
+  sex: Sex
+  hue: number
+  size: number
+  /** A child's smaller body. */
+  child: boolean
+  variant: number
+  /** 0–1. */
+  alpha: number
+  /** The dead: muted colours, eyes closed for good; `cause` tints them a little (soot, pallor). */
+  dead?: boolean
+  cause?: string
+}
+
+/** A person lying on their side, head the way they faced, feet at world pixel (px, py). */
+export function drawLying(ctx: Ctx, px: number, py: number, p: LyingLook) {
+  if (p.alpha <= 0.01) return
+  const s = p.size * (p.child ? 0.65 : 1)
+  const dir = Math.cos(p.heading) >= 0 ? 1 : -1
+  const female = p.sex === 'female'
+  const sooty = p.dead && p.cause === 'burned'
+  const cloth = sooty ? `hsl(${p.hue} 8% 24%)` : p.dead ? `hsl(${p.hue} 22% 40%)` : `hsl(${p.hue} 55% 52%)`
+  const clothDark = sooty ? `hsl(${p.hue} 6% 16%)` : p.dead ? `hsl(${p.hue} 18% 28%)` : `hsl(${p.hue} 55% 34%)`
+  let skin = SKINS[p.variant % SKINS.length]
+  if (p.dead) skin = sooty ? '#6b5a4c' : p.cause === 'drowned' ? '#b9c3c4' : shade(skin, -0.18)
+  const hair = HAIRS[Math.floor(p.variant / SKINS.length) % HAIRS.length]
+  ctx.save()
+  ctx.globalAlpha *= p.alpha
+  ctx.translate(px, py)
+  ctx.scale(s * dir, s)
+  ellipse(ctx, 0, -1, 15, 4, 'rgba(0,0,0,0.22)')
+  // Legs towards the feet end, feet last.
+  ctx.fillStyle = female ? skin : clothDark
+  ctx.fillRect(-14, -5.5, 9, 3.6)
+  ctx.fillStyle = '#2b2d42'
+  ctx.fillRect(-15.5, -5.5, 2, 3.6)
+  if (female) {
+    // A dress over the hips.
+    ctx.fillStyle = cloth
+    ctx.beginPath()
+    ctx.moveTo(-9, -1.8)
+    ctx.lineTo(-7, -9.5)
+    ctx.lineTo(6, -8.5)
+    ctx.lineTo(6, -1.8)
+    ctx.closePath()
+    ctx.fill()
+  } else {
+    ctx.fillStyle = cloth
+    ctx.beginPath()
+    ctx.roundRect(-6, -8.6, 12.5, 7, 3)
+    ctx.fill()
+  }
+  ctx.fillStyle = skin
+  ctx.fillRect(-3, -2.6, 8, 2)
+  if (female) {
+    ctx.fillStyle = hair
+    ctx.beginPath()
+    ctx.roundRect(8, -11, 9, 9, 4)
+    ctx.fill()
+  }
+  circle(ctx, 11, -5.5, 5.2, skin)
+  ctx.fillStyle = hair
+  ctx.beginPath()
+  ctx.arc(11, -5.5, 5.5, Math.PI * 0.55, Math.PI * 1.55)
+  ctx.fill()
+  // Closed eyes.
+  ctx.fillStyle = '#222'
+  ctx.fillRect(12.2, -7.6, 2.2, 0.8)
+  ctx.fillRect(12.2, -4.6, 2.2, 0.8)
+  ctx.restore()
+}
+
 /** Draws a creature with feet at world pixel (px, py), plus effects and an icon for what it is doing. */
 export function drawCreature(ctx: Ctx, px: number, py: number, c: CreatureLook) {
   const s = creatureScale(c.size, c.flags)
+  const f = c.flags
   const female = c.sex === 'female'
-  const resting = (c.flags & FLAG.resting) !== 0
-  const carrying = (c.flags & FLAG.carrying) !== 0
-  const isHead = (c.flags & FLAG.head) !== 0
+  const swimming = (f & FLAG.swimming) !== 0
+  const rafting = (f & FLAG.rafting) !== 0 && !swimming
+  const wading = (f & FLAG.wading) !== 0 && !swimming && !rafting
+  const climbing = (f & FLAG.climbing) !== 0 && !swimming && !rafting
+  const struck = (f & FLAG.hurt) !== 0
+  // Sitting on a raft counts as sitting down.
+  const resting = (f & FLAG.resting) !== 0 || rafting
+  const carrying = (f & FLAG.carrying) !== 0
+  const isHead = (f & FLAG.head) !== 0
   const hurt = c.health < 0.25
   const fx = Math.cos(c.heading)
   const fy = Math.sin(c.heading)
@@ -548,8 +861,50 @@ export function drawCreature(ctx: Ctx, px: number, py: number, c: CreatureLook) 
   const sat = Math.round(18 + 42 * Math.min(1, c.energy * 3))
   const cloth = `hsl(${c.hue} ${sat}% 52%)`
   const clothDark = `hsl(${c.hue} ${sat}% 34%)`
-  const skin = hurt ? HURT_SKIN : SKINS[c.variant % SKINS.length]
+  // A blow makes them flash pale for a moment (or just look hurt, without motion).
+  // (At most three flashes a second: a small figure, but never a strobe.)
+  const flash = struck && (c.still || (c.time * 3 + c.variant * 0.37) % 1 < 0.35)
+  const skin = flash ? (c.still ? HURT_SKIN : '#fff4ec') : hurt ? HURT_SKIN : SKINS[c.variant % SKINS.length]
   const hair = HAIRS[Math.floor(c.variant / SKINS.length) % HAIRS.length]
+
+  if (f & FLAG.fallen) {
+    // Down after a slip: lying where they fell for a moment, a little dazed.
+    drawLying(ctx, px, py, {
+      heading: c.heading,
+      sex: c.sex,
+      hue: c.hue,
+      size: c.size,
+      child: (f & FLAG.child) !== 0,
+      variant: c.variant,
+      alpha: 1,
+    })
+    if (!c.still) {
+      const hx = px + (fx >= 0 ? 11 : -11) * s
+      for (let i = 0; i < 3; i++) {
+        const a = c.time * 4 + (i * Math.PI * 2) / 3
+        circle(ctx, hx + Math.cos(a) * 5 * s, py - 13 * s + Math.sin(a) * 1.8 * s, 1.1 * s + 0.3, '#ffe9a3')
+      }
+    }
+    return
+  }
+
+  // A blow knocks them back and forth for a moment.
+  if (struck && !c.still) px += Math.sin(c.time * 53 + c.variant) * 1.2 * s
+
+  if (swimming) {
+    drawSwimmer(ctx, px, py, s, c, skin, hair, cloth)
+    drawStatusIcon(ctx, px, py - 20 * s, f, c.time, c.exchangeShown)
+    return
+  }
+
+  if (rafting) {
+    const bob = c.still ? 0 : Math.sin(c.time * 2 + c.variant) * 0.8
+    drawRipples(ctx, px, py + 1, s, c.time, c.still, 15)
+    drawRaft(ctx, px, py + bob, s)
+    py += bob - 3 * s // sitting on the logs
+  } else if (wading) {
+    drawRipples(ctx, px, py - 3 * s, s, c.time, c.still)
+  }
 
   const swing = c.moving ? Math.sin(c.step * Math.PI * 2) * 2 : 0
   const bob = c.moving ? Math.abs(Math.sin(c.step * Math.PI * 2)) * 1.2 : 0
@@ -562,7 +917,16 @@ export function drawCreature(ctx: Ctx, px: number, py: number, c: CreatureLook) 
   ctx.translate(px, py)
   ctx.scale(s, s)
   if (hurt) ellipse(ctx, 0, 0, 10, 4.5, `rgba(230,57,70,${0.3 + 0.2 * Math.sin(c.time * 6)})`)
-  ellipse(ctx, 0, 0, 8, 3.5, 'rgba(0,0,0,0.28)')
+  if (!wading && !rafting) ellipse(ctx, 0, 0, 8, 3.5, 'rgba(0,0,0,0.28)')
+  // Climbing: leaning into the slope, the way they are going.
+  if (climbing) ctx.rotate((facing.x || (back ? 0 : 0.6)) * 0.22)
+  if (wading) {
+    // In the shallows to the knees: what is under the water isn't drawn.
+    ctx.beginPath()
+    ctx.rect(-16, -70, 32, 66)
+    ctx.clip()
+    ctx.translate(0, 2.5)
+  }
 
   ctx.fillStyle = female ? skin : clothDark
   if (resting) {
@@ -617,12 +981,19 @@ export function drawCreature(ctx: Ctx, px: number, py: number, c: CreatureLook) 
   }
 
   ctx.fillStyle = skin
-  ctx.fillRect(-8, top + 2 + swing * 0.5, 2, 7)
-  ctx.fillRect(6, top + 2 - swing * 0.5, 2, 7)
+  if (climbing) {
+    // Hands up, reaching for the next hold in turn.
+    const reach = c.still ? 0 : Math.sin(c.time * 5 + c.variant) * 1.8
+    ctx.fillRect(-8, top - 5 + reach, 2, 8)
+    ctx.fillRect(6, top - 5 - reach, 2, 8)
+  } else {
+    ctx.fillRect(-8, top + 2 + swing * 0.5, 2, 7)
+    ctx.fillRect(6, top + 2 - swing * 0.5, 2, 7)
+  }
   if (female && back) longHair()
   if (carrying && back) bundle()
 
-  if (c.flags & FLAG.pregnant && !back) {
+  if (f & FLAG.pregnant && !back) {
     ellipse(ctx, facing.x * 2, top + 9, 4.5, 3.5, cloth)
     ellipse(ctx, facing.x * 2 - 1, top + 8, 1.8, 1.2, 'rgba(255,255,255,0.35)')
   }
@@ -637,7 +1008,7 @@ export function drawCreature(ctx: Ctx, px: number, py: number, c: CreatureLook) 
     ctx.fillRect(-7, hy - 1, 2.5, 8)
     ctx.fillRect(4.5, hy - 1, 2.5, 8)
   }
-  if (c.flags & FLAG.stealing) {
+  if (f & FLAG.stealing) {
     // A dark hood pulled over the head.
     ctx.fillStyle = 'rgba(28,28,38,0.9)'
     ctx.beginPath()
@@ -648,16 +1019,19 @@ export function drawCreature(ctx: Ctx, px: number, py: number, c: CreatureLook) 
     ctx.fill()
   }
 
+  const mood = c.detail && (c.moodStrength ?? 0) >= MOOD_SHOWN ? (c.mood ?? 0) : 0
   if (!back) {
     ctx.fillStyle = '#222'
     const ex = facing.x * 2.5
-    const eyeH = resting ? 0.8 : 2.2 // eyes closed while resting
+    // Eyes closed while resting, wide with fear.
+    const eyeH = resting ? 0.8 : mood === 1 ? 2.8 : 2.2
     if (facing.x === 0) {
       ctx.fillRect(ex - 3.2, hy + 1, 1.8, eyeH)
       ctx.fillRect(ex + 1.4, hy + 1, 1.8, eyeH)
     } else {
       ctx.fillRect(ex + facing.x * 1.5 - 0.9, hy + 1, 1.8, eyeH)
     }
+    if (mood) drawMoodFace(ctx, ex, hy, mood, facing.x === 0)
   }
 
   let above = hy - 8 // next free spot above the head
@@ -665,10 +1039,19 @@ export function drawCreature(ctx: Ctx, px: number, py: number, c: CreatureLook) 
     drawCrown(ctx, 0, hy - 7.5)
     above -= 4
   }
+  if (c.detail && f & FLAG.leader) drawBanner(ctx, back ? -8 : facing.x >= 0 ? -8.5 : 8.5, top + 4, hy - 17, c.time, c.still)
+  if (mood) {
+    // The emote dot: the mood's colour by the head, stronger as it grows.
+    ctx.globalAlpha = 0.55 + 0.45 * Math.min(1, c.moodStrength ?? 0)
+    circle(ctx, 6.8, hy - 6.2, 2.4, '#0f1724')
+    circle(ctx, 6.8, hy - 6.2, 1.8, MOOD_COLORS[mood] ?? '#ffffff')
+    ctx.globalAlpha = 1
+  }
   ctx.restore()
 
-  if (c.flags & FLAG.attacking) drawSlash(ctx, px, py - 12 * s, c.heading, s, c.time)
-  if (c.flags & FLAG.crafting) drawSparks(ctx, px, py - 11 * s, s, c.time)
+  if (struck) drawImpact(ctx, px - fx * 7 * s, py - 14 * s, s, c.time, c.still)
+  if (f & FLAG.attacking) drawSlash(ctx, px, py - 12 * s, c.heading, s, c.time)
+  if (f & FLAG.crafting) drawSparks(ctx, px, py - 11 * s, s, c.time)
 
   if (c.health < 0.6) {
     const w = 16
@@ -680,7 +1063,73 @@ export function drawCreature(ctx: Ctx, px: number, py: number, c: CreatureLook) 
     above -= 5 / s
   }
 
-  drawStatusIcon(ctx, px, py + (above - 4) * s, c.flags, c.time)
+  drawStatusIcon(ctx, px, py + (above - 4) * s, f, c.time, c.exchangeShown)
+}
+
+/** A small mouth (and brows for anger) on a face seen from the front or side; body units. */
+function drawMoodFace(ctx: Ctx, ex: number, hy: number, mood: number, front: boolean) {
+  const mx = front ? ex : ex + Math.sign(ex) * 1.5
+  ctx.strokeStyle = '#3a2418'
+  ctx.lineWidth = 0.8
+  ctx.beginPath()
+  if (mood === 3)
+    ctx.arc(mx, hy + 3.2, 1.6, 0.15 * Math.PI, 0.85 * Math.PI) // a smile
+  else if (mood === 4)
+    ctx.arc(mx, hy + 5.4, 1.5, 1.2 * Math.PI, 1.8 * Math.PI) // a frown
+  else if (mood === 1)
+    ctx.ellipse(mx, hy + 4.4, 0.8, 1.1, 0, 0, Math.PI * 2) // a gasp
+  else if (mood === 2) {
+    ctx.moveTo(mx - 1.4, hy + 4.6)
+    ctx.lineTo(mx + 1.4, hy + 4.6)
+    if (front) {
+      // Brows drawn down towards the nose.
+      ctx.moveTo(ex - 3.6, hy - 0.6)
+      ctx.lineTo(ex - 1.2, hy + 0.4)
+      ctx.moveTo(ex + 3.6, hy - 0.6)
+      ctx.lineTo(ex + 1.2, hy + 0.4)
+    }
+  }
+  ctx.stroke()
+}
+
+/** A village leader's pennant on a short staff held at the side; body units. */
+function drawBanner(ctx: Ctx, x: number, from: number, to: number, time: number, still?: boolean) {
+  ctx.fillStyle = '#7a5532'
+  ctx.fillRect(x - 0.6, to, 1.2, from - to)
+  circle(ctx, x, to - 0.6, 1, '#ffd166')
+  const wave = still ? 0 : Math.sin(time * 5 + x) * 0.8
+  const dir = x < 0 ? -1 : 1
+  ctx.fillStyle = '#e63946'
+  ctx.beginPath()
+  ctx.moveTo(x, to + 0.5)
+  ctx.lineTo(x + dir * 8, to + 2 + wave)
+  ctx.lineTo(x + dir * 5.5, to + 3.6 + wave * 0.5)
+  ctx.lineTo(x + dir * 8, to + 5.4 + wave)
+  ctx.lineTo(x, to + 6.6)
+  ctx.closePath()
+  ctx.fill()
+  ctx.fillStyle = '#ffd166'
+  ctx.fillRect(x + dir * 0.6 - (dir < 0 ? 1.2 : 0), to + 0.8, 1.2, 5.6)
+}
+
+/** A blow landing: a brief white star on the side it came from (no blood: violence stays abstract). */
+function drawImpact(ctx: Ctx, x: number, y: number, s: number, time: number, still?: boolean) {
+  const ph = still ? 0.4 : (time * 3) % 1
+  ctx.save()
+  ctx.globalAlpha = 0.9 * (1 - ph)
+  ctx.strokeStyle = '#fff6e0'
+  ctx.lineWidth = 1.2
+  ctx.lineCap = 'round'
+  ctx.beginPath()
+  for (let i = 0; i < 5; i++) {
+    const a = (i / 5) * Math.PI * 2 + 0.3
+    const r0 = (2 + ph * 3) * s
+    const r1 = (4.5 + ph * 4) * s
+    ctx.moveTo(x + Math.cos(a) * r0, y + Math.sin(a) * r0)
+    ctx.lineTo(x + Math.cos(a) * r1, y + Math.sin(a) * r1)
+  }
+  ctx.stroke()
+  ctx.restore()
 }
 
 /** Small gold crown for a kepala keluarga, centred on (x, y) in body units. */
@@ -730,11 +1179,53 @@ function drawSparks(ctx: Ctx, x: number, y: number, s: number, time: number) {
   ctx.globalAlpha = 1
 }
 
+/** A speech bubble with dots appearing in turn, centred on (x, y): two people talking. */
+export function drawTalkGlyph(ctx: Ctx, x: number, y: number, time: number) {
+  ctx.fillStyle = '#f4f1ea'
+  ctx.beginPath()
+  ctx.roundRect(x - 5.5, y - 3.8, 11, 7, 3)
+  ctx.moveTo(x - 2, y + 3)
+  ctx.lineTo(x - 3.5, y + 5.6)
+  ctx.lineTo(x + 0.5, y + 3)
+  ctx.fill()
+  const lit = Math.floor(time * 3) % 4
+  for (let i = 0; i < 3; i++) {
+    ctx.fillStyle = i < lit ? '#3a4a66' : '#a9b3c4'
+    ctx.fillRect(x - 3.6 + i * 2.8, y - 0.7, 1.6, 1.6)
+  }
+}
+
+/** Two arrows passing each other, centred on (x, y): two people bartering. */
+export function drawTradeGlyph(ctx: Ctx, x: number, y: number, time: number) {
+  const nudge = Math.sin(time * 4) * 0.6
+  circle(ctx, x, y, 5.2, 'rgba(16,24,40,0.75)')
+  ctx.lineWidth = 1.3
+  ctx.lineCap = 'round'
+  ctx.strokeStyle = '#ffd166'
+  ctx.beginPath()
+  ctx.moveTo(x - 3.2 + nudge, y - 1.6)
+  ctx.lineTo(x + 3 + nudge, y - 1.6)
+  ctx.moveTo(x + 1.4 + nudge, y - 3)
+  ctx.lineTo(x + 3 + nudge, y - 1.6)
+  ctx.lineTo(x + 1.4 + nudge, y - 0.2)
+  ctx.stroke()
+  ctx.strokeStyle = '#8fd3b0'
+  ctx.beginPath()
+  ctx.moveTo(x + 3.2 - nudge, y + 1.8)
+  ctx.lineTo(x - 3 - nudge, y + 1.8)
+  ctx.moveTo(x - 1.4 - nudge, y + 0.4)
+  ctx.lineTo(x - 3 - nudge, y + 1.8)
+  ctx.lineTo(x - 1.4 - nudge, y + 3.2)
+  ctx.stroke()
+  ctx.lineCap = 'butt'
+}
+
 /**
  * One small icon above the head, by priority: attacking, stealing, giving,
- * teaching, building, crafting, gathering, wants a mate, drinking, eating, resting.
+ * trading, talking (unless shown between the pair), ill, teaching, building,
+ * crafting, gathering, wants a mate, drinking, eating, resting.
  */
-function drawStatusIcon(ctx: Ctx, x: number, y: number, flags: number, time: number) {
+function drawStatusIcon(ctx: Ctx, x: number, y: number, flags: number, time: number, exchangeShown = false) {
   y += Math.sin(time * 4 + x) * 0.8
   if (flags & FLAG.attacking) {
     // Crossed blades.
@@ -764,6 +1255,16 @@ function drawStatusIcon(ctx: Ctx, x: number, y: number, flags: number, time: num
     ctx.fillRect(x - 3.5, y - 2.8, 7, 1.4)
     circle(ctx, x - 1.4, y - 3.6, 1.2, '#fff3a1')
     circle(ctx, x + 1.4, y - 3.6, 1.2, '#fff3a1')
+  } else if (flags & (FLAG.trading | FLAG.talking) && !exchangeShown) {
+    if (flags & FLAG.trading) drawTradeGlyph(ctx, x, y, time)
+    else drawTalkGlyph(ctx, x, y, time)
+  } else if (flags & FLAG.ill) {
+    // A thermometer: feverish with an infection.
+    ctx.fillStyle = '#f4f1ea'
+    ctx.fillRect(x - 1.2, y - 4.5, 2.4, 7)
+    circle(ctx, x, y + 2.8, 2.2, '#e63946')
+    ctx.fillStyle = '#e63946'
+    ctx.fillRect(x - 0.5, y - 2, 1, 4.5)
   } else if (flags & FLAG.teaching) {
     // An open book, pages lifting gently.
     const lift = Math.sin(time * 5) * 0.6
@@ -895,6 +1396,7 @@ const STRUCTURE_NAMES: Record<string, string> = {
   lumbung: 'Lumbung',
   kandang: 'Kandang',
   sumur: 'Sumur',
+  jamban: 'Jamban',
   jerat: 'Jerat',
   tungku: 'Tungku',
   laboratorium: 'Laboratorium',
@@ -1053,6 +1555,34 @@ const paintWell: Paint = (ctx, hue) => {
   ctx.fillStyle = '#5f5b55'
   for (let x = CX - 9; x < CX + 12; x += 6) ctx.fillRect(x, BY - 9, 1, 6)
   ctx.fillRect(CX - 12, BY - 6, 24, 1)
+}
+
+/** A pit latrine: a small booth of woven bamboo on a timber floor over the pit. */
+const paintLatrine: Paint = (ctx, hue) => {
+  ellipse(ctx, CX, BY - 4, 12, 4, SHADOW)
+  // The raised timber floor over the pit.
+  ctx.fillStyle = '#5a3a1e'
+  ctx.fillRect(CX - 10, BY - 7, 20, 4)
+  // Woven walls: a dark weave with lighter strands.
+  ctx.fillStyle = '#b89a62'
+  ctx.fillRect(CX - 8, BY - 25, 16, 18)
+  ctx.fillStyle = '#9b7f4c'
+  for (let y = BY - 24; y < BY - 8; y += 3) ctx.fillRect(CX - 8, y, 16, 1)
+  for (let x = CX - 6; x < CX + 8; x += 4) ctx.fillRect(x, BY - 25, 1, 18)
+  // A doorway hung with a mat.
+  ctx.fillStyle = '#4a3320'
+  ctx.fillRect(CX - 3, BY - 19, 6, 12)
+  ctx.fillStyle = `hsl(${hue} 30% 45%)`
+  ctx.fillRect(CX - 3, BY - 19, 6, 4)
+  // A sloping thatch roof.
+  ctx.fillStyle = '#7d6a3a'
+  ctx.beginPath()
+  ctx.moveTo(CX - 11, BY - 24)
+  ctx.lineTo(CX + 11, BY - 28)
+  ctx.lineTo(CX + 11, BY - 25)
+  ctx.lineTo(CX - 11, BY - 21)
+  ctx.closePath()
+  ctx.fill()
 }
 
 /** A snare: a sapling bent over a game trail with a cord noose. */
@@ -1430,6 +1960,7 @@ const PAINTERS: Record<string, Paint> = {
   rumah_kayu: paintWoodHouse,
   rumah_bata: paintBrickHouse,
   sumur: paintWell,
+  jamban: paintLatrine,
   jerat: paintSnare,
   tungku: paintFurnace,
   laboratorium: paintLab,
@@ -1513,16 +2044,7 @@ export function structureSprite(kind: string, level: number, hue: number, abando
  * Farm field drawn flat on its tile at world pixel (px, py). A `planted` field
  * shows only its tilled rows: the crop growing on it is drawn on top.
  */
-export function drawFarm(
-  ctx: Ctx,
-  px: number,
-  py: number,
-  hue: number,
-  abandoned: boolean,
-  tx: number,
-  ty: number,
-  planted = false,
-) {
+export function drawFarm(ctx: Ctx, px: number, py: number, hue: number, abandoned: boolean, tx: number, ty: number, planted = false) {
   ctx.fillStyle = abandoned ? '#6d5a45' : '#7a5332'
   ctx.fillRect(px + 1, py + 1, TILE - 2, TILE - 2)
   ctx.fillStyle = abandoned ? '#5a4a39' : '#5e3e24'
@@ -1553,7 +2075,7 @@ export function drawIrrigation(ctx: Ctx, px: number, py: number, links: number) 
   const bank = '#7a5a38'
   const water = '#3f86c4'
   // A lone channel still shows as a short east–west ditch.
-  const arms = links || (2 | 8)
+  const arms = links || 2 | 8
   const arm = (bit: number, w: number, color: string) => {
     if (!(arms & bit)) return
     ctx.fillStyle = color
@@ -1641,12 +2163,48 @@ const DEPOSIT_COLORS: Record<string, string> = {
 }
 
 const ELEMENT_TINTS: Record<string, string> = {
-  Fe: '#b4532f', Cu: '#2fa58a', Sn: '#cfd6db', Pb: '#6b7682', Zn: '#94a7bb', Au: '#f2c94c', Ag: '#e8ebef',
-  Hg: '#c0392b', S: '#e9d43f', C: '#2a2a2a', U: '#9be15d', Ti: '#7d808a', Cr: '#5a6b4f', Mn: '#4a3f52',
-  Ni: '#a2b06e', Mo: '#9aa6b5', W: '#50545e', Zr: '#d9b48f', Be: '#7fd6c2', Li: '#d9c4ea', Cs: '#efe7cf',
-  Rb: '#e6d3e8', Ce: '#c79be0', Y: '#b48fd9', Sc: '#a8cbe3', Ca: '#efe9dc', Ba: '#f1e6c9', Sr: '#d7e7f3',
-  Na: '#f6f6f6', B: '#ebe5d3', Nb: '#60718a', Co: '#3a5fd0', Sb: '#8d9095', As: '#bcae8c', Bi: '#d9a6cb',
-  Al: '#c8703d', V: '#cf5631', K: '#f0b3b3', P: '#82b892', Mg: '#e0d8c7', Ta: '#6b7b8c', Re: '#9aa0a8',
+  Fe: '#b4532f',
+  Cu: '#2fa58a',
+  Sn: '#cfd6db',
+  Pb: '#6b7682',
+  Zn: '#94a7bb',
+  Au: '#f2c94c',
+  Ag: '#e8ebef',
+  Hg: '#c0392b',
+  S: '#e9d43f',
+  C: '#2a2a2a',
+  U: '#9be15d',
+  Ti: '#7d808a',
+  Cr: '#5a6b4f',
+  Mn: '#4a3f52',
+  Ni: '#a2b06e',
+  Mo: '#9aa6b5',
+  W: '#50545e',
+  Zr: '#d9b48f',
+  Be: '#7fd6c2',
+  Li: '#d9c4ea',
+  Cs: '#efe7cf',
+  Rb: '#e6d3e8',
+  Ce: '#c79be0',
+  Y: '#b48fd9',
+  Sc: '#a8cbe3',
+  Ca: '#efe9dc',
+  Ba: '#f1e6c9',
+  Sr: '#d7e7f3',
+  Na: '#f6f6f6',
+  B: '#ebe5d3',
+  Nb: '#60718a',
+  Co: '#3a5fd0',
+  Sb: '#8d9095',
+  As: '#bcae8c',
+  Bi: '#d9a6cb',
+  Al: '#c8703d',
+  V: '#cf5631',
+  K: '#f0b3b3',
+  P: '#82b892',
+  Mg: '#e0d8c7',
+  Ta: '#6b7b8c',
+  Re: '#9aa0a8',
 }
 
 export function depositColor(id: string, elements: string[]): string {

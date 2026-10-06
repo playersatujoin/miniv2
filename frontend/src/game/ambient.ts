@@ -1,10 +1,13 @@
 // Ambient life over the island in watch mode: wind that sways trees and
 // crops, cloud shadows drifting over the land, smoke from hearths and
-// furnaces, the odd flock of birds, and a soft vignette. All of it is
-// decoration driven by real time; it never reads or changes the simulation.
+// furnaces, the odd flock of birds, and a soft vignette. The wind is the
+// server's (Weather.windDir/wind, the same wind that spreads fires) when it
+// streams one, else a gentle local breeze from the rain and moisture. The rest
+// is decoration driven by real time; nothing here changes the simulation.
 // With "reduce motion" set in the OS everything stands still.
 
 import { hash } from './render'
+import { easeAngle, windVector, type WindVector } from './wind'
 
 type Ctx = CanvasRenderingContext2D
 
@@ -35,36 +38,49 @@ const FLOCK_SECONDS = 11
 
 type Flock = { start: number; y0: number; y1: number; dir: 1 | -1; birds: number; seed: number }
 
+/** The wind as streamed: where it blows towards (radians, 0 = +x), strength 0–1, and whether a storm rages. */
+export type StreamedWind = { dir: number; strength: number; storm: boolean }
+
 export class AmbientFx {
   /** Wind strength 0–1 and its direction (radians), shared by everything that moves with it. */
   wind = 0.3
   windDir = 0.35
   private cloudiness = 0.4
   private target = { wind: 0.3, cloudiness: 0.4 }
+  /** The server's wind, or null to make up a breeze (older servers stream none). */
+  private streamed: StreamedWind | null = null
   private blob: HTMLCanvasElement | null = null
   private vignette: { w: number; h: number; canvas: HTMLCanvasElement } | null = null
   private flock: Flock | null = null
   private nextFlock = 8
-  private readonly reducedMotion =
-    typeof window.matchMedia === 'function' ? window.matchMedia('(prefers-reduced-motion: reduce)') : null
+  private readonly reducedMotion = typeof window.matchMedia === 'function' ? window.matchMedia('(prefers-reduced-motion: reduce)') : null
 
   get still() {
     return this.reducedMotion?.matches ?? false
   }
 
-  /** Feeds the weather: wetter, rainier days are cloudier and windier. */
-  setWeather(moisture: number, rain: number) {
-    this.target.cloudiness = clamp01(0.15 + 0.55 * moisture + 0.25 * Math.max(0, rain - 1))
-    this.target.wind = clamp01(0.2 + 0.35 * Math.max(0, rain - 0.8) + 0.15 * moisture)
+  /** Feeds the weather: wetter, rainier days are cloudier; the wind is the server's when it sends one, else made up. */
+  setWeather(moisture: number, rain: number, wind: StreamedWind | null = null) {
+    this.streamed = wind
+    const storm = wind?.storm ? 0.35 : 0
+    this.target.cloudiness = clamp01(0.15 + 0.55 * moisture + 0.25 * Math.max(0, rain - 1) + storm)
+    this.target.wind = wind ? clamp01(wind.strength) : clamp01(0.2 + 0.35 * Math.max(0, rain - 0.8) + 0.15 * moisture)
+  }
+
+  /** The wind now as a vector on the map. */
+  get vector(): WindVector {
+    return windVector(this.windDir, this.wind)
   }
 
   update(dt: number, time: number) {
     const k = 1 - Math.exp(-dt / 4)
     this.cloudiness += (this.target.cloudiness - this.cloudiness) * k
-    // Gusts: a slow wobble on top of the weather's wind.
-    const gust = 0.12 * Math.sin(time * 0.31) + 0.08 * Math.sin(time * 0.87 + 1.3)
+    // Gusts: a slow wobble on top of the weather's wind (smaller on the server's own wind).
+    const gusty = this.streamed ? 0.4 : 1
+    const gust = gusty * (0.12 * Math.sin(time * 0.31) + 0.08 * Math.sin(time * 0.87 + 1.3))
     this.wind += (clamp01(this.target.wind + gust) - this.wind) * k
-    this.windDir = 0.35 + 0.25 * Math.sin(time * 0.013)
+    if (this.streamed) this.windDir = easeAngle(this.windDir, this.streamed.dir, 1 - Math.exp(-dt / 1.5))
+    else this.windDir = 0.35 + 0.25 * Math.sin(time * 0.013)
     if (this.flock && time - this.flock.start > FLOCK_SECONDS) this.flock = null
     if (!this.flock && time > this.nextFlock && !this.still) {
       const seed = Math.floor(time)
@@ -92,7 +108,14 @@ export class AmbientFx {
   }
 
   /** Cloud shadows over the world; call under the world transform (pixels = tiles × tile). */
-  drawCloudShadows(ctx: Ctx, tile: number, width: number, height: number, time: number, view: { x0: number; y0: number; x1: number; y1: number }) {
+  drawCloudShadows(
+    ctx: Ctx,
+    tile: number,
+    width: number,
+    height: number,
+    time: number,
+    view: { x0: number; y0: number; x1: number; y1: number },
+  ) {
     if (this.cloudiness < 0.05) return
     this.blob ??= blobSprite()
     const drift = this.still ? 0 : time * CLOUD_SPEED * (0.5 + this.wind)
@@ -153,7 +176,14 @@ export class AmbientFx {
       c.width = Math.max(1, Math.round(w / 4))
       c.height = Math.max(1, Math.round(h / 4))
       const g = c.getContext('2d')!
-      const grad = g.createRadialGradient(c.width / 2, c.height / 2, Math.min(c.width, c.height) * 0.35, c.width / 2, c.height / 2, Math.hypot(c.width, c.height) / 2)
+      const grad = g.createRadialGradient(
+        c.width / 2,
+        c.height / 2,
+        Math.min(c.width, c.height) * 0.35,
+        c.width / 2,
+        c.height / 2,
+        Math.hypot(c.width, c.height) / 2,
+      )
       grad.addColorStop(0, 'rgba(6,10,20,0)')
       grad.addColorStop(1, 'rgba(6,10,20,0.38)')
       g.fillStyle = grad
@@ -168,16 +198,29 @@ export class AmbientFx {
  * Smoke rising from (x, y) in world pixels, bent by the wind: thin and grey
  * from a hearth, thicker and darker from a furnace.
  */
-export function drawSmoke(ctx: Ctx, x: number, y: number, time: number, seed: number, wind: number, windDir: number, heavy = false, still = false) {
+export function drawSmoke(
+  ctx: Ctx,
+  x: number,
+  y: number,
+  time: number,
+  seed: number,
+  wind: number,
+  windDir: number,
+  heavy = false,
+  still = false,
+) {
   const puffs = heavy ? 7 : 5
   const rise = heavy ? 44 : 34
-  const lean = Math.cos(windDir) * (8 + 26 * wind)
+  const reach = 8 + 26 * wind
+  // Drift along the map's y is foreshortened: seen from above at a slant, it reads as rising.
+  const leanX = Math.cos(windDir) * reach
+  const leanY = Math.sin(windDir) * reach * 0.35
   ctx.save()
   for (let i = 0; i < puffs; i++) {
     // Puffs are evenly spaced in age, so the column never thins or bunches up.
     const age = still ? (i + 0.5) / puffs : (time * (heavy ? 0.42 : 0.32) + i / puffs) % 1
-    const px = x + lean * age * age + Math.sin(time * 1.3 + i * 2.1 + seed) * 2 * age
-    const py = y - rise * age
+    const px = x + leanX * age * age + Math.sin(time * 1.3 + i * 2.1 + seed) * 2 * age
+    const py = y - rise * age + leanY * age * age
     const r = (heavy ? 3.5 : 2.6) + age * (heavy ? 8 : 6.5)
     const fade = Math.min(1, age * 4) * (1 - age) ** 1.3
     ctx.globalAlpha = (heavy ? 0.75 : 0.62) * fade

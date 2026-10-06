@@ -123,7 +123,11 @@ Definisi tile (ID, key, nama, warna, `solid`) ada di `backend/internal/world/til
 | GET | `/api/maps/{id}/sim/demography` | Demografi: tabel hidup, kesuburan, Gini, piramida, acuan pra-modern |
 | GET | `/api/maps/{id}/sim/ecology` | Ekologi: musim, ENSO, hujan, satwa, ladang, stok pangan, riwayat dan catatan per tahun |
 | GET | `/api/maps/{id}/sim/mined` | Bekas tambang dan pohon yang ditebang (tunggul) |
-| GET | `/api/maps/{id}/sim/stream` | Server-Sent Events: `frame` (makhluk, hewan, cuaca; 10×/detik), `structures` (bangunan) dan `fields` (ladang; paling sering sekali sedetik) |
+| GET | `/api/maps/{id}/sim/stream` | Server-Sent Events: `frame` (makhluk, hewan, cuaca dan angin, mayat, api; 10×/detik), `structures` (bangunan), `fields` (ladang; paling sering sekali sedetik), `water`, `mosquitoes`, `villages` (desa) dan `burnt` (lahan terbakar) |
+| GET | `/api/maps/{id}/sim/villages` | Desa: wilayah (hull), warga, pemimpin, kepercayaan warga, sikap antar-desa |
+| GET | `/api/maps/{id}/sim/replay` | Tayangan ulang: tick frame yang terekam (±5 menit terakhir), versi bangunan, penanda peristiwa |
+| GET | `/api/maps/{id}/sim/replay/frame?tick=N` | Frame terekam pada/sebelum tick N (format sama dengan stream; header `X-Structures-Version`) |
+| GET | `/api/maps/{id}/sim/replay/structures/{v}` | Bangunan versi `v` yang terekam |
 
 ## Cara kerja singkat
 
@@ -138,3 +142,117 @@ Definisi tile (ID, key, nama, warna, `solid`) ada di `backend/internal/world/til
 cd backend && go test ./...
 cd frontend && npm run typecheck
 ```
+
+## Adaptasi sistem engine & karakter 3D
+
+Implementasi Go/TypeScript mengambil pola pemisahan persepsi, pelaksanaan tindakan,
+navigasi, streaming dan animasi dari pembacaan subsistem RAGE pada arsip lokal
+`Gameporject1`. Modul C++ dan aset game tidak diperlukan untuk menjalankan Miniv2.
+
+- **Persepsi lokal:** pandangan memperhitungkan arah, cahaya dan penghalang. Suara
+  pertengkaran menembus penghalang dengan intensitas berkurang, tanpa membocorkan
+  identitas pelaku. Saksi dan korban mengingat pengalaman secara pribadi.
+- **Ingatan sosial:** maksimal 16 hubungan dan 12 kejadian per orang; kepercayaan
+  memudar. Input reputasi pada otak sekarang membaca penilaian pribadi. Ada 78
+  input dan 15 output; sinyal bahaya baru tidak menentukan respons makhluk.
+- **Tindakan & navigasi:** niat makan, minum dan mengumpulkan dapat memakai rute
+  lokal A* menuju sumber yang terlihat atau tempat minum yang diingat. Rute punya
+  status mendekat/terhalang/tiba; pekerjaan craft/build tetap punya durasi dan
+  bisa dibatalkan oleh otak. Tujuan jauh dijangkau melalui langkah lokal.
+- **Jadwal simulasi:** keputusan dan indra 5 Hz, gerak/tubuh/pekerjaan 20 Hz.
+  Jadwal tersebar menurut ID, tidak bergantung kamera. Input dan output terakhir
+  disimpan agar save/restore tetap deterministik.
+- **Dunia besar:** SSE menerima `x0,y0,x1,y1,follow`; area kamera hanya membatasi
+  pengiriman orang/hewan. Bangunan, ekologi dan simulasi seluruh dunia tetap
+  berjalan. Mesh terrain 32×32 dimuat/dilepas menurut frustum kamera, dengan
+  batas dua chunk baru per frame. Grid tinggi dan peta dasar masih dimuat utuh.
+- **Karakter semi-realistis:** proporsi kepala lebih anatomis, detail mata/hidung/
+  kelopak, tangan, kain prosedural, variasi tubuh, pertumbuhan berdasarkan usia,
+  rambut memutih dan postur menua. Instancing dan LOD menjaga biaya kerumunan;
+  karakter dekat mendapat IK kaki dan kepala menoleh ke tujuan/kejadian.
+- **Langit:** cahaya, warna, kabut dan arah sumber cahaya mengikuti waktu serta
+  cuaca. Hari abstrak simulasi sangat cepat; pada kecepatan di atas sekitar 2,5×
+  atau reduced motion, pencahayaan memakai rata-rata untuk menghindari kedipan.
+
+Klik penduduk, lalu buka **Karakter 3D · lihat lebih dekat** pada Inspector untuk
+memutar modelnya. **Hubungan & ingatan** memperlihatkan pengalaman pribadi dan
+identitas yang benar-benar diketahui. Bagian tindakan menampilkan status rute
+atau sisa waktu pekerjaan.
+
+Simpanan **v10** memuat ingatan, rute dan keputusan terakhir. Simpanan v6–v9 masih
+bisa dibaca; koneksi otak lama dipertahankan dan kanal baru dimulai dengan bobot
+nol. Manager menyimpan arsip `.vN-before-v10.bak` sebelum menimpa format lama.
+Perubahan mekanisme dan jadwal berpikir dapat mengubah perjalanan dunia setelah
+migrasi; determinisme berarti replay dengan versi aturan yang sama.
+
+```bash
+cd backend
+go test ./...
+go test -race ./...
+go run ./cmd/soak -seeds 1-8 -minutes 20 -parallel 1 -out ../reports/engine-adaptation/on
+go run ./cmd/soak -seeds 1-8 -minutes 20 -parallel 1 -off perception,navigation,ai_budget -out ../reports/engine-adaptation/off
+cd ../frontend
+npm test
+npm run build
+```
+
+`npm test` memakai dukungan TypeScript bawaan Node modern (diuji dengan Node 26).
+Untuk menguji backend terpisah, proxy Vite dapat diarahkan dengan
+`MINIV2_API_URL=http://127.0.0.1:8081 npm run dev -- --port 5174`.
+
+### Adaptasi engine II (6 Oktober 2026, malam)
+
+Sistem berikutnya dari arsip `clonegame` (lihat tabel di `PLAN.md`). Semua tetap
+mengikuti prinsip: otak yang memutuskan; kode hanya fisika, aturan dan indra.
+
+- **Kejadian yang membekas** (`EventShocking`): mayat, perkelahian, pencurian,
+  serangan hewan, api, bangunan runtuh, orang tenggelam atau jatuh tinggal di
+  dunia beberapa saat dan bisa dilihat/didengar. Saksi kini dicari lewat grid.
+- **Suasana hati** (`PedMotivation`): takut, marah, senang, duka naik karena
+  kejadian dan surut ke tingkat istirahat masing-masing (gen temperamen).
+  Tampak di wajah karakter 3D dan di Inspector.
+- **Bicara, gosip, barter** (`TaskChat`, `witness.h`): output otak baru `bicara`
+  dan `tukar`; pertukaran hanya terjadi bila kedua orang mau sambil berhadapan.
+  Kabar tentang orang ketiga menyebar dengan keyakinan yang berkurang.
+- **Api, angin, badai** (`Fire.h`, `wind.h`, `weather.h`): angin muson dan badai
+  dihitung di backend; api menjalar menurut bahan bakar, kekeringan dan angin,
+  membakar ladang dan rumah.
+- **Air dan lereng** (`NavCapabilities`, `Floater`, `Climbing`,
+  `PathServer_Hierarchical`): mengarungi sungai, berenang (bisa tenggelam),
+  rakit (`rakit`, teknologi `pelayaran`), memanjat gunung/batu (bisa jatuh), rute
+  jarak jauh lewat lapisan wilayah 8×8.
+- **Desa dan pemimpin** (`MapZones`, `Relationships`, `PedGroup`): rumah yang
+  berdekatan menjadi desa dengan wilayah, nama dan pemimpin, yaitu orang yang
+  paling dipercaya warganya. Kedudukan pemimpin bertahan sekitar beberapa tahun
+  meski dukungan sempat turun.
+- **Pengamat:** ekspresi wajah, ragdoll untuk mayat dan orang terjatuh, kain
+  tertiup angin, pose berenang/berakit/memanjat, api dan asap mengikuti angin,
+  badai dengan petir, riak air, wilayah desa, IK kaki hewan berkaki empat, tab
+  **🏘 Desa**, tombol **⏪ Tayangan ulang** dan **🎥 Kamera otomatis** (3D).
+
+**Pembaruan v12:** gerak halus, ingatan tempat makanan (dan diceritakan saat
+mengobrol), tabung air bambu, empat neuron dorongan bawaan (lapar → cari
+makan, haus → cari air lebih dulu) yang diwariskan dan bebas berevolusi, serta
+otak tanpa batas ukuran (yang membatasi hanya energi). Otak kini punya **99
+input dan 17 output**; simpanan v11 diperlebar otomatis.
+
+**v13:** gizi (protein dan mikronutrien per makanan; anak bisa kerdil, infeksi
+lebih berat, kesuburan turun), genetika diploid dengan silsilah dan koefisien
+perkawinan sedarah (pohon keluarga di Inspector), dan berbagi pangan (bangkai
+buruan, minta bagi, bawon, lumbung desa). Sakelar A/B baru: `-off
+nutrition,genetics,sharing`. Endpoint baru:
+`GET /api/maps/{id}/sim/creatures/{cid}/family?depth=N`.
+
+Sebelum v12, otak punya **96 input dan 17 output**. Simpanan **v11** memperlebar otak lama
+tanpa memindahkan bobot (kanal baru mulai nol) dan mengarsipkan file asli sebagai
+`.v10-before-v11.bak`. Sakelar A/B: `-off stimuli,affect,exchange,fire,mobility,villages`.
+
+```bash
+go run ./cmd/soak -seeds 1-8 -minutes 20 -parallel 4 -out ../reports/engine-adaptation-2/on
+go run ./cmd/soak -seeds 1-8 -minutes 20 -parallel 4 -off stimuli,affect,exchange,fire,mobility,villages -out ../reports/engine-adaptation-2/off
+```
+
+Ini model simulasi dan karakter prosedural, dengan parameter persepsi/kepercayaan
+yang masih berupa heuristik. Hasil soak dan batas performa dicatat pada bagian
+adaptasi engine di `PLAN.md`; implementasi ini belum merupakan port seluruh RAGE
+atau validasi bahwa perilaku manusia telah realistis secara ilmiah.

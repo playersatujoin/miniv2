@@ -11,6 +11,7 @@ const C = {
   pos: [237, 161, 0] as const, // amber: positive / excitatory
   neg: [57, 135, 229] as const, // blue: negative / inhibitory
   learned: [27, 175, 122] as const, // aqua ring: changed by lifetime learning (not a weight sign)
+  grown: [167, 139, 250] as const, // violet ring: a neuron grown during this life
 }
 const FONT = '10px Inter, system-ui, sans-serif'
 const FONT_BOLD = '600 10px Inter, system-ui, sans-serif'
@@ -24,16 +25,18 @@ const MIN_CELL = 3
 const MAX_IN_EDGES = 60
 const MAX_OUT_EDGES = 30
 
-type Kind = 'in' | 'hid' | 'out'
+type Kind = 'in' | 'hid' | 'grow' | 'out'
 type Node = { kind: Kind; i: number; x: number; y: number; r: number }
 type Layout = {
   width: number
   height: number
   xIn: number
   xHid: number
+  xGrow: number
   xOut: number
   inputs: Node[]
   hidden: Node[]
+  grown: Node[]
   outputs: Node[]
   groups: { title: string; y: number }[]
   short: string[]
@@ -76,7 +79,10 @@ function computeLayout(brain: Brain, width: number): Layout {
   const { groups, short } = groupInputs(brain.inputLabels)
   const xIn = 112
   const xOut = width - 82
-  const xHid = (xIn + xOut) / 2
+  // Grown neurons get a column of their own between the inherited ones and the decisions.
+  const ng = brain.grown ?? 0
+  const xHid = ng > 0 ? xIn + (xOut - xIn) * 0.4 : (xIn + xOut) / 2
+  const xGrow = xIn + (xOut - xIn) * 0.7
 
   const inputs: Node[] = []
   const heads: Layout['groups'] = []
@@ -104,6 +110,9 @@ function computeLayout(brain: Brain, width: number): Layout {
     y: hy,
     r: rHid,
   }))
+  const gPitch = ng > 1 ? (bottom - top - 16) / (ng - 1) : 20
+  const rGrow = clamp(gPitch / 2 - 1, 2, 5.5)
+  const grown = spread(ng, top + 8, bottom - 8).map((gy, i): Node => ({ kind: 'grow', i, x: xGrow, y: gy, r: rGrow }))
   const outputs = spread(brain.output.length, top + span * 0.18, bottom - span * 0.18).map((oy, i): Node => ({
     kind: 'out',
     i,
@@ -120,9 +129,11 @@ function computeLayout(brain: Brain, width: number): Layout {
     height: heatY + n * cell + 8,
     xIn,
     xHid,
+    xGrow,
     xOut,
     inputs,
     hidden,
+    grown,
     outputs,
     groups: heads,
     short,
@@ -176,13 +187,24 @@ function draw(ctx: CanvasRenderingContext2D, brain: Brain, L: Layout, hoverKey: 
     L.outputs.forEach((b, o) => allOut.push({ a, b, c: (wOut[h]?.[o] ?? 0) * (hidden[h] ?? 0) })),
   )
 
+  // Grown neurons hear the senses and the inherited neurons, and speak to the decisions.
+  const gAct = brain.grownAct ?? []
+  const allGrowIn: Edge[] = []
+  L.grown.forEach((b, k) => {
+    L.inputs.forEach((a, i) => allGrowIn.push({ a, b, c: (brain.grownIn?.[k]?.[i] ?? 0) * (input[i] ?? 0) }))
+    L.hidden.forEach((a, h) => allGrowIn.push({ a, b, c: (brain.grownRec?.[k]?.[h] ?? 0) * (hidden[h] ?? 0) }))
+  })
+  const allGrowOut: Edge[] = []
+  L.grown.forEach((a, k) => L.outputs.forEach((b, o) => allGrowOut.push({ a, b, c: (brain.grownOut?.[k]?.[o] ?? 0) * (gAct[k] ?? 0) })))
+
   const focus = hoverKey ? (e: Edge) => `${e.a.kind}:${e.a.i}` === hoverKey || `${e.b.kind}:${e.b.i}` === hoverKey : null
   const dim = focus ? 0.3 : 1
   drawEdges(ctx, strongest(allIn, MAX_IN_EDGES), dim)
   drawEdges(ctx, strongest(allOut, MAX_OUT_EDGES), dim)
+  drawEdges(ctx, strongest(allGrowIn, MAX_IN_EDGES / 2), dim)
+  drawEdges(ctx, strongest(allGrowOut, MAX_OUT_EDGES / 2), dim)
   if (focus) {
-    drawEdges(ctx, strongest(allIn.filter(focus), 16), 1)
-    drawEdges(ctx, strongest(allOut.filter(focus), 16), 1)
+    for (const list of [allIn, allOut, allGrowIn, allGrowOut]) drawEdges(ctx, strongest(list.filter(focus), 16), 1)
   }
 
   // Column titles.
@@ -192,7 +214,12 @@ function draw(ctx: CanvasRenderingContext2D, brain: Brain, L: Layout, hoverKey: 
   ctx.textAlign = 'right'
   ctx.fillText('Indra', L.xIn + 4, 10)
   ctx.textAlign = 'center'
-  ctx.fillText('Saraf', L.xHid, 10)
+  ctx.fillText(L.grown.length ? 'Saraf bawaan' : 'Saraf', L.xHid, 10)
+  if (L.grown.length) {
+    ctx.fillStyle = `rgb(${C.grown.join(',')})`
+    ctx.fillText(`Saraf tumbuh (${L.grown.length})`, L.xGrow, 10)
+    ctx.fillStyle = C.muted
+  }
   ctx.textAlign = 'left'
   ctx.fillText('Keputusan', L.xOut - 6, 10)
 
@@ -223,6 +250,25 @@ function draw(ctx: CanvasRenderingContext2D, brain: Brain, L: Layout, hoverKey: 
   })
 
   L.hidden.forEach((n, h) => node(n, hidden[h] ?? 0))
+  // Slow neurons (a time constant of 3 ticks or more) hold a memory: drawn with a second ring.
+  L.hidden.forEach((n, h) => {
+    if ((brain.tau?.[h] ?? 1) < 3) return
+    ctx.strokeStyle = C.text
+    ctx.lineWidth = 0.8
+    ctx.beginPath()
+    ctx.arc(n.x, n.y, Math.max(1, n.r - 2), 0, Math.PI * 2)
+    ctx.stroke()
+  })
+  L.grown.forEach((n, k) => {
+    node(n, gAct[k] ?? 0)
+    // A violet ring marks a grown neuron, brighter the more it is used.
+    const use = clamp((brain.grownUse?.[k] ?? 0) * 8, 0, 1)
+    ctx.strokeStyle = `rgba(${C.grown.join(',')},${0.45 + 0.55 * use})`
+    ctx.lineWidth = 1.2 + use
+    ctx.beginPath()
+    ctx.arc(n.x, n.y, n.r + 1.5, 0, Math.PI * 2)
+    ctx.stroke()
+  })
   // Lifetime learning: a ring whose strength shows how much this neuron's weights moved.
   if (brain.learned?.length) {
     // Keep rings inside the gap between neighbours when the brain is large.
@@ -274,9 +320,17 @@ function describe(brain: Brain, kind: Kind, i: number) {
   if (kind === 'in') return `${brain.inputLabels[i]}: ${(brain.input[i] ?? 0).toFixed(2)}`
   if (kind === 'hid') {
     const learned = brain.learned?.[i]
-    return `Neuron h${i + 1}: ${(brain.hidden[i] ?? 0).toFixed(2)}${
+    const tau = brain.tau?.[i]
+    return `Neuron bawaan h${i + 1}: ${(brain.hidden[i] ?? 0).toFixed(2)}${
       learned != null ? ` · berubah karena belajar ${Math.round(learned * 100)}%` : ''
-    }`
+    }${tau != null && tau >= 3 ? ` · lambat (τ ${tau.toFixed(1)}): menyimpan ingatan` : ''}`
+  }
+  if (kind === 'grow') {
+    const born = brain.grownBorn?.[i]
+    const use = brain.grownUse?.[i] ?? 0
+    return `Neuron tumbuh g${i + 1}: ${(brain.grownAct?.[i] ?? 0).toFixed(2)}${
+      born != null ? ` · tumbuh pada usia ${born.toFixed(1).replace('.', ',')} tahun` : ''
+    } · dipakai ${use.toFixed(3).replace('.', ',')}`
   }
   const v = brain.output[i] ?? 0
   return `${brain.outputLabels[i] ?? `o${i + 1}`}: ${v.toFixed(2)}${isActiveOutput(i, v) ? ' (aktif)' : ''}`
@@ -290,7 +344,7 @@ export function BrainView({ brain }: { brain: Brain }) {
   const layout = useMemo(
     () => (width >= 220 ? computeLayout(brain, width) : null),
     // Labels and sizes are fixed per creature; structural sharing keeps these references stable.
-    [brain.inputLabels, brain.hidden.length, brain.output.length, brain.wRec.length, width],
+    [brain.inputLabels, brain.hidden.length, brain.grown, brain.output.length, brain.wRec.length, width],
   )
 
   const hoverKey = hover?.key ?? null
@@ -316,7 +370,7 @@ export function BrainView({ brain }: { brain: Brain }) {
 
     let best: Node | null = null
     let bestD = Infinity
-    for (const n of [...layout.inputs, ...layout.hidden, ...layout.outputs]) {
+    for (const n of [...layout.inputs, ...layout.hidden, ...layout.grown, ...layout.outputs]) {
       const d = Math.hypot(n.x - px, n.y - py)
       if (d < n.r + 5 && d < bestD) {
         best = n
@@ -356,7 +410,7 @@ export function BrainView({ brain }: { brain: Brain }) {
       <canvas
         ref={canvasRef}
         role="img"
-        aria-label={`Jaringan saraf ${brain.input.length}→${brain.hidden.length}→${brain.output.length}. Keputusan aktif: ${activeOutputs.join(', ') || 'tidak ada'}.`}
+        aria-label={`Jaringan saraf ${brain.input.length}→${brain.hidden.length}${brain.grown ? `+${brain.grown} tumbuh` : ''}→${brain.output.length}. Keputusan aktif: ${activeOutputs.join(', ') || 'tidak ada'}.`}
         onPointerMove={onPointerMove}
         onPointerLeave={() => setHover(null)}
       />
@@ -373,6 +427,12 @@ export function BrainView({ brain }: { brain: Brain }) {
           <>
             <i className="obs-swatch-sm obs-swatch-ring" style={{ borderColor: `rgb(${C.learned.join(',')})` }} /> berubah
             karena belajar
+          </>
+        ) : null}
+        {brain.grown ? (
+          <>
+            <i className="obs-swatch-sm obs-swatch-ring" style={{ borderColor: `rgb(${C.grown.join(',')})` }} /> tumbuh selama
+            hidup
           </>
         ) : null}
       </p>

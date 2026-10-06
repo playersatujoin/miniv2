@@ -2,6 +2,8 @@ package sim
 
 import (
 	"math"
+
+	"miniv2/backend/internal/ecology"
 )
 
 const (
@@ -26,13 +28,22 @@ const (
 	hurtSeconds = 3.0
 )
 
+// Movement eases (see act): the turn rate follows the brain's wish with a
+// time constant of a quarter second, and the pace rises to full speed or
+// falls to a stop in about paceRise seconds, as a walker's does (Winter
+// 1991: two or three steps to reach a steady gait).
+var turnEase = 1 - math.Exp(-dt/0.25)
+
+const paceRise = 0.4
+
 // act lets the brain decide and applies the consequences.
 func (s *Sim) act(c *Creature) {
 	out := &c.output
-	think(c.Genome, c.Mind.wIn, c.Mind.wOut, &c.input, c.Hidden, out)
+	s.decide(c)
 	if (s.tick+c.ID)%learnEvery == 0 {
 		s.learnStep(c)
 	}
+	s.affectStep(c)
 	tr := &c.Genome.Traits
 	c.ate, c.drank = false, false
 	if m := s.carrier(c); m != nil {
@@ -55,26 +66,56 @@ func (s *Sim) act(c *Creature) {
 		if out[outEat] > 0.5 && c.Energy < 0.98 {
 			if reach := s.foodAround(int(math.Floor(c.X)), int(math.Floor(c.Y))); reach > 0.01 {
 				// Fruit, tubers and greens within arm's reach.
-				want := float32(min(float64(reach), eatRate*dt, (1-c.Energy)/foodValue))
+				// A small child picks and eats slowly (see childSkill).
+				want := float32(min(float64(reach), eatRate*dt*s.childSkill(c), (1-c.Energy)/foodValue))
 				s.takeFoodAround(int(math.Floor(c.X)), int(math.Floor(c.Y)), want)
+				s.eatWild(c, int(math.Floor(c.X)), int(math.Floor(c.Y)), float64(want)*foodValue)
 				c.Energy += float64(want) * foodValue
 				s.eco.Current().FoodWild += float64(want) * foodValue
 				c.ate = true
-			} else if c.Energy < 0.9 && (s.tick+c.ID)%(TicksPerSecond/2) == 0 {
-				// Carried food is eaten a unit at a time, what spoils first first.
+				s.rememberFood(c, c.X, c.Y, float64(reach)/2)
+			} else if c.Energy < 0.9 && (s.tick+c.ID)%(TicksPerSecond/2) == 0 && !s.eatCarcass(c) {
+				// Carried food is eaten a unit at a time, what spoils first
+				// first (after meat lying in reach); with none, what family
+				// or a well-off neighbour close by can spare (sharing.go).
 				if id := s.cat.edible(c.Inventory, s.handKeep(c)); id != "" {
 					c.Inventory.take(id, 1)
 					f := s.cat.item(id).Food
+					s.eatFood(c, id, math.Min(f, 1-c.Energy))
 					c.Energy = math.Min(1, c.Energy+f)
 					s.ateFood(id, f)
 					c.ate = true
+				} else {
+					s.scrounge(c)
 				}
 			}
 		}
-		if out[outDrink] > 0.5 && c.Hydration < 0.98 && s.canDrink(c) {
-			c.Hydration = math.Min(1, c.Hydration+drinkRate*dt)
-			c.drank = true
-			c.WaterX, c.WaterY = c.X, c.Y
+		if out[outDrink] > 0.5 && (c.Hydration < 0.98 || c.WaterCarried < s.waterRoom(c)) {
+			if kind, tile := s.waterSource(c); kind == drinkNone {
+				// Away from water: the tubes, if they hold any.
+				c.drank = c.Hydration < 0.98 && s.drinkCarried(c)
+			} else {
+				s.fillWater(c, kind, tile)
+				if c.Hydration < 0.98 {
+					rate := drinkRate
+					if kind == drinkDug {
+						rate *= digRate
+					}
+					gain := math.Min(1-c.Hydration, rate*dt)
+					c.Hydration += gain
+					// The water comes out of the river, the pool, the sand or the aquifer.
+					if kind == drinkWell {
+						s.eco.DrawGroundwater(tile, gain*waterPerHydration)
+					} else {
+						s.eco.Drink(tile, gain*waterPerHydration)
+					}
+					if !s.noDisease() {
+						c.Swallowed += s.germsDrunk(kind, tile) * gain
+					}
+					c.drank = true
+					c.WaterX, c.WaterY = c.X, c.Y
+				}
+			}
 		}
 		if c.ate || c.drank {
 			moveFactor = slowWhileFeeding
@@ -86,16 +127,33 @@ func (s *Sim) act(c *Creature) {
 		moveFactor = math.Min(moveFactor, s.work(c))
 	}
 
-	c.Heading = normAngle(c.Heading + out[outTurn]*maxTurnRate*dt)
+	// The network supplies intent; its executor only handles the route. A
+	// body doesn't swing round or stop dead the moment the mind changes: the
+	// turn and the pace ease towards what is wanted (after RAGE's
+	// Peds/PedMoveBlend), so a brain that wavers between left and right at
+	// each thought walks a smooth, if wandering, line.
+	turn := c.Heading
+	moveFactor *= s.navigate(c)
+	if c.Travel == nil || c.Travel.Phase != "approach" {
+		c.Loco.Turn += (out[outTurn]*maxTurnRate - c.Loco.Turn) * turnEase
+		c.Heading = normAngle(turn + c.Loco.Turn*dt)
+	} else {
+		c.Loco.Turn = 0
+	}
 	speed := 0.0
 	if !c.resting {
-		speed = out[outMove] * tr.MaxSpeed * moveFactor
+		speed = out[outMove] * tr.MaxSpeed * moveFactor * s.vigor(c) * (1 - sicknessSlows*sickness(c)) * s.locomotionFactor(c)
 	}
+	speed = s.stayClose(c, speed)
+	step := tr.MaxSpeed / paceRise * dt
+	c.Loco.Speed += clamp(speed-c.Loco.Speed, -step, step)
+	speed = math.Min(speed, c.Loco.Speed)
 	c.Pace = speed / tr.MaxSpeed
 	c.Bumped = false
 	if speed > 0 {
 		c.Bumped = !s.move(c, speed*dt)
 	}
+	s.locomotionStep(c)
 
 	s.metabolize(c, speed)
 	if (s.tick+c.ID)%TicksPerSecond == 0 && s.atHome(c) {
@@ -107,11 +165,12 @@ func (s *Sim) act(c *Creature) {
 // need less) and lets time heal and fade.
 func (s *Sim) metabolize(c *Creature, speed float64) {
 	tr := &c.Genome.Traits
-	cost := basalCost * tr.Size * tr.Metabolism
+	// Stronger immune defences and a gut full of worms both cost food.
+	cost := basalCost * tr.Size * tr.Metabolism * (1 + immuneCost*(tr.Immunity-1) + wormHunger*c.Worms)
 	if c.resting {
 		cost *= 0.5
 	}
-	cost += moveCost*speed*speed*tr.Size + visionCost*tr.Vision + brainCost*float64(c.Genome.Hidden)
+	cost += moveCost*speed*speed*tr.Size + visionCost*tr.Vision + brainCost*float64(brainSize(c))
 	if c.Pregnancy != nil {
 		cost += pregnancyCost
 	}
@@ -126,7 +185,8 @@ func (s *Sim) metabolize(c *Creature, speed float64) {
 	}
 	c.Reputation *= 1 - dt/reputationAge
 
-	if c.Energy > 0.3 && c.Hydration > 0.3 && c.Health < 1 {
+	// Wounds don't mend while an illness is taking its toll.
+	if c.Energy > 0.3 && c.Hydration > 0.3 && c.Health < 1 && c.Ill == nil {
 		heal := healRate
 		if c.resting {
 			heal *= 3
@@ -134,6 +194,7 @@ func (s *Sim) metabolize(c *Creature, speed float64) {
 		if s.atHome(c) {
 			heal *= 2
 		}
+		heal *= s.nutritionHealing(c)
 		c.Health = math.Min(1, c.Health+heal*dt)
 	}
 }
@@ -183,6 +244,7 @@ func (s *Sim) beCarried(c, m *Creature) {
 	s.metabolize(c, 0)
 	if m.Energy > nurseFloor {
 		give := math.Min(math.Max(0, 0.95-c.Energy), nurseRate*dt)
+		s.suckle(c, m, give)
 		c.Energy += give
 		m.Energy -= give * nurseCost
 	}
@@ -260,38 +322,81 @@ func (s *Sim) flash(c *Creature, fx int) {
 	c.fx[fx] = s.tick + int64(fxSeconds*TicksPerSecond)
 }
 
-// canDrink reports whether fresh water or a well is within reach. Sea water
-// can't be drunk.
-func (s *Sim) canDrink(c *Creature) bool {
-	if i, ok := s.terrain.indexAt(c.X, c.Y); ok && s.terrain.nearFresh[i] {
-		return true
+// Where a drink comes from.
+const (
+	drinkNone = iota
+	drinkOpen // a river, a pool or a lake
+	drinkDug  // a hole dug in a dry riverbed, seeping slowly
+	drinkWell // a well that still reaches the groundwater
+)
+
+// digRate is how much slower water seeps into a hole dug in a dry riverbed
+// than it can be scooped from a river.
+const digRate = 0.4
+
+// drinkPerYear is what one person drinks in a year in the water cycle's
+// units (about 4 litres a day, 1.5 m³ a year; see ecology/hydrology.go).
+const drinkPerYear = 0.094
+
+// waterPerHydration turns the hydration a drink restores into water taken
+// from the river: a year's worth of thirst is a year's drinking.
+const waterPerHydration = drinkPerYear / (thirstRate * thirstScale * SecondsPerYear)
+
+// waterSource finds the water within reach: open fresh water first, then
+// water in the sand of a dry riverbed, then a well whose groundwater hasn't
+// sunk out of reach. Sea water can't be drunk. tile is where it is taken from.
+func (s *Sim) waterSource(c *Creature) (kind, tile int) {
+	x, y := int(math.Floor(c.X)), int(math.Floor(c.Y))
+	dug := -1
+	for dy := -1; dy <= 1; dy++ {
+		for dx := -1; dx <= 1; dx++ {
+			j, ok := s.terrain.index(x+dx, y+dy)
+			if !ok || !s.terrain.fresh[j] {
+				continue
+			}
+			switch s.eco.WaterState(j) {
+			case ecology.WaterFlowing, ecology.WaterPools:
+				return drinkOpen, j
+			case ecology.WaterUnder:
+				dug = j
+			}
+		}
 	}
-	return s.structureNear(c.X, c.Y, wellReach, func(st *Structure) bool { return st.kind.Well })
+	if dug >= 0 {
+		return drinkDug, dug
+	}
+	for _, st := range s.structures {
+		if !st.kind.Well || st.dist(c.X, c.Y) > wellReach {
+			continue
+		}
+		if i, ok := s.terrain.index(st.X, st.Y); ok && s.eco.Groundwater(i) >= ecology.WellMin {
+			return drinkWell, i
+		}
+	}
+	return drinkNone, -1
 }
 
-// move steps the creature forward, sliding along walls. It reports whether
-// the full move succeeded.
-func (s *Sim) move(c *Creature, dist float64) bool {
-	dx, dy := math.Cos(c.Heading)*dist, math.Sin(c.Heading)*dist
-	r := bodyRadius * c.Genome.Traits.Size
-	if s.free(c.X+dx, c.Y+dy, dx, dy, r) {
-		c.X += dx
-		c.Y += dy
-		return true
-	}
-	if s.free(c.X+dx, c.Y, dx, 0, r) {
-		c.X += dx
-	} else if s.free(c.X, c.Y+dy, 0, dy, r) {
-		c.Y += dy
+// riverRunsBy reports whether open fresh water lies next to tile i now.
+func (s *Sim) riverRunsBy(i int) bool {
+	x, y := i%s.terrain.w, i/s.terrain.w
+	for dy := -1; dy <= 1; dy++ {
+		for dx := -1; dx <= 1; dx++ {
+			if j, ok := s.terrain.index(x+dx, y+dy); ok && s.terrain.fresh[j] && s.eco.WaterState(j) >= ecology.WaterPools {
+				return true
+			}
+		}
 	}
 	return false
 }
 
-// free checks the destination centre and the body's leading edge.
-func (s *Sim) free(x, y, dx, dy, r float64) bool {
-	l := math.Hypot(dx, dy)
-	if l == 0 {
-		return !s.terrain.blockedAt(x, y)
-	}
-	return !s.terrain.blockedAt(x, y) && !s.terrain.blockedAt(x+dx/l*r, y+dy/l*r)
+// waterAt reports whether someone standing at (x, y) would find water to drink.
+func (s *Sim) waterAt(x, y float64) bool {
+	kind, _ := s.waterSource(&Creature{X: x, Y: y})
+	return kind != drinkNone
+}
+
+// canDrink reports whether there is water to drink within reach.
+func (s *Sim) canDrink(c *Creature) bool {
+	kind, _ := s.waterSource(c)
+	return kind != drinkNone
 }

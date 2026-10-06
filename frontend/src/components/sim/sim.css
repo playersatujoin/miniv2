@@ -1661,3 +1661,503 @@
 .dock-content.dock-elements .pt {
   max-width: 980px;
 }
+
+/* --- Neuron tab ------------------------------------------------------------ */
+
+/* Its own two columns: the island's brains on the left, one brain in full on the right. */
+.dock-content.dock-neuron {
+  columns: auto;
+}
+
+/* (As specific as the dock's card rule, which would make it an inline block.) */
+.dock-content > .neuron-view {
+  display: grid;
+  grid-template-columns: minmax(300px, 400px) minmax(0, 1fr);
+  gap: 22px;
+  align-items: start;
+}
+
+.neuron-side,
+.neuron-main {
+  display: grid;
+  gap: 18px;
+  min-width: 0;
+}
+
+@media (max-width: 1000px) {
+  .neuron-view {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.neuron-hist {
+  display: flex;
+  align-items: flex-end;
+  gap: 3px;
+  height: 92px;
+  padding-bottom: 14px;
+}
+
+.neuron-hist-bar {
+  flex: 1;
+  height: 100%;
+  position: relative;
+  display: flex;
+  align-items: flex-end;
+}
+
+.neuron-hist-bar span {
+  display: block;
+  width: 100%;
+  min-height: 1px;
+  border-radius: 3px 3px 0 0;
+  background: linear-gradient(#a78bfa, #6d5bd0);
+}
+
+.neuron-hist-bar small {
+  position: absolute;
+  bottom: -14px;
+  left: 0;
+  font-size: 9px;
+  color: var(--muted, #8ea0bb);
+}
+
+.neuron-top {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.neuron-top button {
+  width: 100%;
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  padding: 5px 8px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.neuron-top button:hover,
+.neuron-top button.active {
+  border-color: rgba(167, 139, 250, 0.5);
+  background: rgba(167, 139, 250, 0.08);
+}
+
+.neuron-top strong {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+}
+
+.neuron-grown {
+  color: #a78bfa;
+  font-style: normal;
+  font-weight: 600;
+  font-size: 11px;
+}
+
+.neuron-note {
+  margin: 0;
+  line-height: 1.5;
+}
+
+.neuron-timeline {
+  display: grid;
+  gap: 4px;
+}
+
+.neuron-timeline-track {
+  position: relative;
+  height: 18px;
+  border-radius: 9px;
+  background: linear-gradient(90deg, rgba(167, 139, 250, 0.06), rgba(167, 139, 250, 0.16));
+}
+
+.neuron-timeline-track i {
+  position: absolute;
+  top: 4px;
+  width: 10px;
+  height: 10px;
+  margin-left: -5px;
+  border-radius: 50%;
+  background: #a78bfa;
+  box-shadow: 0 0 0 1px rgba(23, 34, 52, 0.9);
+}
+
+.neuron-timeline-axis {
+  display: flex;
+  justify-content: space-between;
+}
+
+.obs-brain-open {
+  justify-self: start;
+  padding: 6px 10px;
+  border: 1px solid rgba(167, 139, 250, 0.45);
+  border-radius: 6px;
+  background: rgba(167, 139, 250, 0.1);
+  color: inherit;
+  cursor: pointer;
+}
+
+.obs-brain-open:hover {
+  background: rgba(167, 139, 250, 0.2);
+}
+
+/* --- Fresh water (Ecology) --------------------------------------------------- */
+
+.eco-water-bar {
+  display: flex;
+  height: 12px;
+  border-radius: 6px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.eco-water-bar span {
+  display: block;
+  height: 100%;
+}
+
+.eco-water-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin: 0;
+}
+
+.eco-water-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* Health (Fase 3b) */
+.obs-pill-ill {
+  background: color-mix(in srgb, #e66767 22%, transparent);
+  color: #ffb3b3;
+}
+
+.obs-pill-ill.grave {
+  background: #a83232;
+  color: #fff;
+}
+
+.obs-ill {
+  display: grid;
+  gap: 4px;
+  margin: 4px 0 8px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  border: 1px solid color-mix(in srgb, #e66767 40%, transparent);
+  background: color-mix(in srgb, #e66767 10%, transparent);
+}
+
+.obs-ill.serious {
+  border-color: #fab219;
+}
+
+.obs-ill.grave {
+  border-color: #d03b3b;
+  background: color-mix(in srgb, #d03b3b 22%, transparent);
+}
+
+.health-diseases {
+  list-style: none;
+  margin: 6px 0 10px;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.health-diseases li {
+  display: grid;
+  gap: 1px;
+}
+
+.health-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: baseline;
+}
+
+.health-name {
+  font-weight: 600;
+}
+
+.health-num {
+  font-variant-numeric: tabular-nums;
+}
+
+.health-maps {
+  display: grid;
+  gap: 14px;
+}
+
+.health-maps figure {
+  margin: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.health-maps figcaption {
+  display: grid;
+  gap: 1px;
+  font-size: 12px;
+}
+
+.health-map {
+  width: 100%;
+  aspect-ratio: 1;
+  border-radius: 6px;
+  border: 1px solid var(--border, #24324a);
+  image-rendering: auto;
+  background: #0b1320;
+}
+/* Private experience and the currently requested action's execution. */
+.obs-execution {
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px;
+  margin: 10px 0;
+  border-left: 3px solid #61b6a3;
+  background: #61b6a310;
+  border-radius: 5px;
+}
+.obs-private-memory {
+  margin: 12px 0;
+  font-size: 13px;
+}
+.obs-private-memory summary {
+  cursor: pointer;
+  font-weight: 600;
+  padding: 6px 0;
+}
+.obs-relation {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 5px 0;
+}
+.obs-memories {
+  padding-left: 18px;
+  line-height: 1.6;
+}
+.obs-portrait {
+  margin: 10px 0;
+}
+.obs-portrait summary {
+  cursor: pointer;
+  font-size: 13px;
+  padding: 5px 0;
+}
+.obs-character-portrait {
+  height: 260px;
+  margin-top: 8px;
+  border-radius: 10px;
+  overflow: hidden;
+  background: radial-gradient(ellipse at 50% 35%, #334b52, #152229 80%);
+  touch-action: none;
+}
+.obs-character-portrait canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/* --- Engine adaptation II: events, moods, exchange, villages ----------------- */
+
+/* Society's events (villages, trade, news, fire) are diamonds in the log and the replay. */
+.obs-dot-diamond {
+  border-radius: 1px;
+  transform: rotate(45deg) scale(0.85);
+}
+
+.obs-pill-move {
+  border-color: #3987e5;
+}
+
+.obs-pill-village {
+  border-color: #6b7a93;
+}
+
+.obs-pill-village.leader {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.obs-mood {
+  display: grid;
+  gap: 6px;
+}
+
+.obs-mood-now {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0 6px;
+  font-size: 13px;
+}
+
+.obs-mood-now .obs-dot {
+  margin-right: 0;
+}
+
+.obs-mood-bars {
+  display: grid;
+  gap: 4px;
+}
+
+.obs-mood-row {
+  display: grid;
+  grid-template-columns: 52px 1fr 36px;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.obs-mood-row.dominant {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.obs-mood-val {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+}
+
+.obs-chat {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+/* Second-hand memories (gossip): dashed, italic and fainter than what they lived or saw. */
+.obs-memories li.obs-mem-told {
+  font-style: italic;
+  color: #b9c4d6;
+  border-left: 2px dashed #d55181;
+  padding-left: 6px;
+}
+
+/* Desa tab */
+.soc-trades {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.soc-trades li {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border);
+}
+
+.soc-trades li:last-child {
+  border-bottom: 0;
+  padding-bottom: 0;
+}
+
+.soc-trades small {
+  white-space: nowrap;
+}
+
+.vil-card {
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-top: 3px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg);
+}
+
+.vil-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.vil-head h3 {
+  flex: 1;
+  min-width: 0;
+  font-size: 16px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.vil-swatch {
+  width: 14px;
+  height: 14px;
+  border-radius: 4px;
+  flex: none;
+}
+
+.observer-panel .vil-locate {
+  height: 26px;
+  padding: 0 9px;
+  font-size: 12px;
+}
+
+.vil-trust {
+  display: grid;
+  gap: 6px;
+}
+
+.vil-trust-bar {
+  display: flex;
+  height: 8px;
+  border-radius: 4px;
+  overflow: hidden;
+  background: #2a3b56;
+}
+
+.vil-trust-bar span {
+  height: 100%;
+}
+
+.vil-attitudes ul {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 4px;
+  font-size: 12px;
+}
+
+.vil-attitudes li {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+/* The Desa tab lays its cards out in a grid that scrolls down, however many villages there are. */
+.dock-content.dock-villages {
+  columns: auto;
+}
+
+.dock-content.dock-villages > .vil-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  align-items: start;
+  gap: 20px;
+  margin: 0;
+}
+
+.vil-grid > p {
+  margin: 0;
+}

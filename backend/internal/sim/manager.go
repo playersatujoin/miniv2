@@ -80,6 +80,14 @@ func (m *Manager) load(mp *world.Map) *Sim {
 	if err == nil {
 		s, err := Restore(mp, data)
 		if err == nil {
+			if s.loadedVersion < stateVersion {
+				s.migrationOriginal = data
+				if berr := m.archiveMigration(mp.ID, s); berr != nil {
+					slog.Error("cannot archive pre-migration save", "map", mp.ID, "err", berr)
+				} else {
+					slog.Info("world migrated with original save retained", "map", mp.ID, "from", s.loadedVersion, "to", stateVersion)
+				}
+			}
 			return s
 		}
 		// Keep the old world on disk instead of overwriting it.
@@ -146,6 +154,10 @@ func (m *Manager) SaveAll() error {
 
 	var errs []error
 	for id, s := range sims {
+		if err := m.archiveMigration(id, s); err != nil {
+			errs = append(errs, err)
+			continue // never overwrite the original when its backup failed
+		}
 		data, err := s.MarshalState()
 		if err == nil {
 			err = writeFileAtomic(m.path(id), data)
@@ -155,6 +167,41 @@ func (m *Manager) SaveAll() error {
 		}
 	}
 	return errors.Join(errs...)
+}
+
+func (m *Manager) archiveMigration(id string, s *Sim) error {
+	if len(s.migrationOriginal) == 0 {
+		return nil
+	}
+	backup := m.path(id) + fmt.Sprintf(".v%d-before-v%d.bak", s.loadedVersion, stateVersion)
+	f, err := os.OpenFile(backup, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if errors.Is(err, os.ErrExist) {
+		info, statErr := os.Stat(backup)
+		if statErr != nil {
+			return statErr
+		}
+		if !info.Mode().IsRegular() || info.Size() == 0 {
+			return fmt.Errorf("migration backup is not a nonempty file: %s", backup)
+		}
+		s.migrationOriginal = nil
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	_, err = f.Write(s.migrationOriginal)
+	if err == nil {
+		err = f.Sync()
+	}
+	if closeErr := f.Close(); err == nil {
+		err = closeErr
+	}
+	if err != nil {
+		os.Remove(backup)
+		return err
+	}
+	s.migrationOriginal = nil
+	return nil
 }
 
 func (m *Manager) autosave() {

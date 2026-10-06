@@ -107,6 +107,10 @@ type final struct {
 	Kindness          int                   `json:"kindness"`
 	Kills             int                   `json:"kills"`
 	Demography        sim.DemographyMetrics `json:"demography"`
+	// Fase 3b: sanitation built by the end, and respiratory strains seen.
+	Latrines int `json:"latrines"`
+	Wells    int `json:"wells"`
+	Strains  int `json:"strains"`
 	// TierGeneration: the highest generation alive when each tier was first
 	// reached (tier → generation), to compare progress across time scales.
 	TierGeneration map[int]int    `json:"tierGeneration"`
@@ -117,6 +121,12 @@ type final struct {
 	MsPerTick      float64        `json:"msPerTick"`
 	WallSeconds    float64        `json:"wallSeconds"`
 	Ecology        ecoFinal       `json:"ecology"`
+	// Engine adaptation II: exchanges, villages, fire, water and stimuli at the end.
+	Engine sim.EngineInfo `json:"engine"`
+	// Fase 3d: nutrition over the run.
+	Nutrition nutritionFinal `json:"nutrition"`
+	// Fase 3c: inbreeding by generation and over time, and its outcomes.
+	Genetics sim.GeneticsInfo `json:"genetics"`
 }
 
 type run struct {
@@ -140,7 +150,7 @@ func main() {
 	size := flag.Int("size", 128, "map width and height")
 	mapSeed := flag.Uint("mapseed", 1337, "map generator seed")
 	parallel := flag.Int("parallel", max(1, runtime.NumCPU()/2), "worlds simulated at once")
-	off := flag.String("off", "", "rules to switch off: crime, instincts, learning (= plasticity + culture), humans, farming, climate, fauna")
+	off := flag.String("off", "", "rules to switch off: crime, instincts, learning (= plasticity + culture), humans, farming, climate, fauna, space (personal space), neurogenesis, water (rivers always full), disease, sanitation, attachment, perception (local memory), navigation (action routes), ai_budget (think every motor tick), stimuli (lasting shocks and bodies), affect (moods), exchange (talk, gossip, trade), fire, mobility (water and steep ground), villages, nutrition (food is only calories), sharing (carcasses, eating from others' food, bawon, village granaries, knowing the land), genetics (recessive disorders harmless, kin senses 0)")
 	out := flag.String("out", "", "report directory (default <repo>/reports/<timestamp>)")
 	label := flag.String("label", "", "name of this run, shown in the report")
 	cpuprofile := flag.String("cpuprofile", "", "write a CPU profile of the whole run to this file")
@@ -230,12 +240,14 @@ func simulate(cfg config, seed uint64, opts sim.Options) run {
 		eco.AnimalsMin[i] = -1
 	}
 	lastYear := 0
+	var nut nutritionTally
 	start := time.Now()
 	for minute := 1; minute <= cfg.Minutes; minute++ {
 		s.Advance(60 * sim.TicksPerSecond)
 		info := s.Info()
 		d := s.Demography().Current
 		ev := s.Ecology()
+		nut.add(s.Nutrition())
 		var animals [ecology.SpeciesCount]int
 		for i, sp := range ev.Species {
 			n := sp.Wild + sp.Tame
@@ -304,11 +316,17 @@ func simulate(cfg config, seed uint64, opts sim.Options) run {
 		era1 = cfg.Minutes
 	}
 	info := s.Info()
+	health := s.Health()
 	r.Final = final{
 		Era1LastedMinutes: era1, FirstHouseMinute: firstHouse, Eras: info.Era, Population: info.Population,
 		MaxGeneration: info.MaxGeneration, Tier: info.Tier, TierName: info.TierName, Elements: info.ElementsDiscovered,
 		Houses: info.Houses, Structures: info.Structures, Crimes: info.Crimes, Kindness: info.Kindness, Kills: info.Kills,
 		Demography:     s.Demography().Current,
+		Engine:         info.Engine,
+		Genetics:       s.Genetics(),
+		Latrines:       health.Latrines,
+		Wells:          health.Wells,
+		Strains:        health.Strains,
 		TierGeneration: tierGen,
 		KnowledgeLost:  info.KnowledgeLost,
 		AvgBrainSize:   info.AvgBrainSize,
@@ -317,6 +335,7 @@ func simulate(cfg config, seed uint64, opts sim.Options) run {
 		MsPerTick:      float64(wall.Microseconds()) / 1000 / float64(cfg.Minutes*60*sim.TicksPerSecond),
 		WallSeconds:    wall.Seconds(),
 		Ecology:        eco,
+		Nutrition:      nut.final(s.Nutrition()),
 	}
 	return r
 }
@@ -358,6 +377,12 @@ func parseOff(spec string) (sim.Options, []string, error) {
 			continue
 		case "crime":
 			opts.NoCrime = true
+		case "perception":
+			opts.NoPerception = true
+		case "navigation":
+			opts.NoNavigation = true
+		case "ai_budget":
+			opts.NoAIBudget = true
 		case "instincts":
 			opts.NoInstincts = true
 		case "learning":
@@ -374,8 +399,38 @@ func parseOff(spec string) (sim.Options, []string, error) {
 			opts.NoClimate = true
 		case "fauna":
 			opts.NoFauna = true
+		case "space":
+			opts.NoPersonalSpace = true
+		case "neurogenesis":
+			opts.NoNeurogenesis = true
+		case "water":
+			opts.NoWaterCycle = true
+		case "disease":
+			opts.NoDisease = true
+		case "sanitation":
+			opts.NoSanitation = true
+		case "attachment":
+			opts.NoAttachment = true
+		case "stimuli":
+			opts.NoStimuli = true
+		case "affect":
+			opts.NoAffect = true
+		case "exchange":
+			opts.NoExchange = true
+		case "fire":
+			opts.NoFire = true
+		case "mobility":
+			opts.NoMobility = true
+		case "villages":
+			opts.NoVillages = true
+		case "nutrition":
+			opts.NoNutrition = true
+		case "sharing":
+			opts.NoSharing = true
+		case "genetics":
+			opts.NoGenetics = true
 		default:
-			return opts, nil, fmt.Errorf("unknown rule %q (known: crime, instincts, learning, plasticity, culture, humans, farming, climate, fauna)", name)
+			return opts, nil, fmt.Errorf("unknown rule %q (known: crime, instincts, learning, plasticity, culture, humans, farming, climate, fauna, space, neurogenesis, water, disease, sanitation, attachment, perception, navigation, ai_budget, stimuli, affect, exchange, fire, mobility, villages, nutrition, sharing, genetics)", name)
 		}
 		list = append(list, name)
 	}

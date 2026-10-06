@@ -235,7 +235,7 @@ func TestFrameCarriesWeatherAnimalsAndFields(t *testing.T) {
 	if err := json.Unmarshal(s.encodeFrame(), &raw); err != nil {
 		t.Fatal(err)
 	}
-	if len(raw.W) != 5 || raw.W[0] < 0 || raw.W[0] >= 1 || len(raw.A) == 0 || len(raw.A[0]) != 6 {
+	if len(raw.W) != 8 || raw.W[0] < 0 || raw.W[0] >= 1 || len(raw.A) == 0 || len(raw.A[0]) != 6 {
 		t.Fatalf("frame weather %v, %d animals", raw.W, len(raw.A))
 	}
 	c := s.creatures[0]

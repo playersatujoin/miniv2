@@ -306,11 +306,11 @@ func (s *Sim) farmKind() (chem.StructureKind, bool) {
 // channel for a field by a river, a granary for a farming family, a pen for
 // their animals.
 func (s *Sim) amenityWanted(c *Creature, h *Structure, k chem.StructureKind) bool {
-	if !(k.Farm || k.Well || k.Irrigation || k.Granary || k.Pen || k.Snare) || !s.canPractise(c, k.Tech) || s.amenityNear(h, k) {
+	if !(k.Farm || k.Well || k.Irrigation || k.Granary || k.Pen || k.Snare || k.Latrine) || !s.canPractise(c, k.Tech) || s.amenityNear(h, k) {
 		return false
 	}
 	switch {
-	case k.Snare:
+	case k.Snare, k.Latrine:
 		return true
 	case k.Farm, k.Well:
 		return k.Farm && !s.opts.NoFarming || k.Well

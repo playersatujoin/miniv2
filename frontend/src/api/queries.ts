@@ -20,6 +20,14 @@ export const mapQuery = (id: string) =>
   })
 
 /** Deposits only change when the map is edited, so the map version is part of the key. */
+export const reliefQuery = (id: string, version: string) =>
+  queryOptions({
+    queryKey: ['maps', id, 'relief', version],
+    queryFn: () => api.relief(id),
+    staleTime: Infinity,
+    retry: false,
+  })
+
 export const geologyQuery = (id: string, version: string) =>
   queryOptions({
     queryKey: ['maps', id, 'geology', version],

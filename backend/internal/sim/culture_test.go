@@ -25,7 +25,7 @@ func TestPlasticityIsBoundedAndOnlyWhenLearning(t *testing.T) {
 			for i := range c.input {
 				c.input[i] = rng.Float64()*2 - 1
 			}
-			think(c.Genome, c.Mind.wIn, c.Mind.wOut, &c.input, c.Hidden, &c.output)
+			think(c.Genome, c.Mind.wIn, c.Mind.wOut, c.Mind, &c.input, c.Hidden, &c.output)
 			// Alternate good and bad times so the surprise keeps flipping.
 			if step%2 == 0 {
 				c.Energy = 1
@@ -93,11 +93,11 @@ func TestBrainGrowsNeutrallyAndShrinks(t *testing.T) {
 		}
 	}
 
-	// Over many mutations sizes stay within the allowed range.
+	// Over many mutations sizes stay valid and never fall below the minimum.
 	m := g
 	for range 2000 {
 		m = m.clone().mutate(rng)
-		if m.Hidden < minHidden || m.Hidden > maxHidden || !m.valid() {
+		if m.Hidden < minHidden || !m.valid() {
 			t.Fatalf("mutation produced %d neurons", m.Hidden)
 		}
 	}
@@ -108,7 +108,7 @@ func TestBiggerBrainsCostEnergy(t *testing.T) {
 	small := person(s, Female, "Sari", x, y)
 	big := person(s, Female, "Ayu", x, y)
 	big.Genome = big.Genome.clone()
-	for big.Genome.Hidden < maxHidden {
+	for big.Genome.Hidden < 64 {
 		big.Genome = big.Genome.withNeuron(rand.New(rand.NewPCG(1, 1)))
 	}
 	s.giveBrain(big)
