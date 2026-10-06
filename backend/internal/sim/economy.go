@@ -21,9 +21,8 @@ const (
 	amenityRange      = 4.0  // farms and wells count as "near the house" within this
 	experimentSeconds = 4.0
 	synthesisSeconds  = 8.0
-	foodReserve       = 3 // food units kept on hand when storing at home
-	farmFood          = 1.0
-	farmRegrow        = 0.02
+	foodReserve       = 3   // food units kept on hand when storing at home
+	harvestRate       = 1.0 // harvest units (each up to harvestUnits) per second
 )
 
 // Stock is a bag of items.
@@ -137,6 +136,8 @@ func (noGeology) Update(*world.Map)                           {}
 func (noGeology) Amounts() []float32                          { return nil }
 func (noGeology) SetAmounts([]float32) error                  { return nil }
 func (noGeology) MinedOut() [][2]int                          { return nil }
+func (noGeology) Woodland() ([]float32, float64)              { return nil, 0 }
+func (noGeology) Logged() [][2]int                            { return nil }
 
 // --- knowledge --------------------------------------------------------------
 
@@ -390,27 +391,61 @@ func (s *Sim) weaponBonus(c *Creature) float64 {
 	return best
 }
 
-// keepHouse is the automatic part of home life: leave surplus in storage and
-// take food from it when hungry.
+// keepHouse is the automatic part of home life: leave surplus in storage
+// (food in the family granary if there is one), take food when hungry, take
+// seed out to sow, and slaughter livestock the family has more of than it
+// can keep.
 func (s *Sim) keepHouse(c *Creature) {
 	h := s.houseOf(c)
+	granary := s.granaryOf(h)
 	tool, weapon := s.bestTool(c), s.bestWeapon(c)
+	seed := s.seedInHand(c)
+	food := s.mealsInHand(c)
 	for _, id := range c.Inventory.ids() {
 		keep := 0
-		switch id {
-		case chem.Food:
-			keep = foodReserve
-		case tool, weapon:
+		switch {
+		case id == seed:
+			keep = seedCarry // seed goes along to the fields; more of it goes in store
+		case s.cat.isFood(id):
+			// Keep a few units in hand, the longest-keeping ones.
+			if food <= foodReserve {
+				continue
+			}
+		case id == tool, id == weapon:
 			keep = 1
 		}
-		if surplus := c.Inventory[id] - keep; surplus > 0 {
-			n := min(surplus, h.kind.Storage-h.Storage.count())
-			h.Storage.add(id, c.Inventory.take(id, n))
+		surplus := c.Inventory[id] - keep
+		if s.cat.isFood(id) && id != seed {
+			surplus = min(surplus, food-foodReserve)
+			food -= max(0, surplus)
+		}
+		if surplus <= 0 {
+			continue
+		}
+		store := h
+		if granary != nil && s.cat.isFood(id) {
+			store = granary
+		}
+		n := min(surplus, store.kind.Storage-store.Storage.count())
+		store.Storage.add(id, c.Inventory.take(id, n))
+	}
+	if c.Energy < 0.5 && s.mealsInHand(c) == 0 {
+		// A couple of meals from the house, else from the granary.
+		keep := s.storeKeep(c, h)
+		for _, st := range []*Structure{h, granary} {
+			for tries := 0; st != nil && tries < 2+seedCarry && s.mealsInHand(c) < 2; tries++ {
+				id := s.cat.edible(st.Storage, keep)
+				if id == "" {
+					break
+				}
+				c.Inventory.add(id, st.Storage.take(id, 1))
+			}
 		}
 	}
-	if c.Energy < 0.5 && c.Inventory[chem.Food] == 0 {
-		c.Inventory.add(chem.Food, h.Storage.take(chem.Food, 2))
+	if seed == "" && s.sows(c) {
+		s.takeSeed(c, granary, h)
 	}
+	s.cullLivestock(c, h)
 }
 
 func (s *Sim) bestTool(c *Creature) chem.ItemID {
@@ -441,29 +476,49 @@ func (s *Sim) gather(c *Creature) bool {
 	}
 	foodCost := float32(s.cat.foodEnergy() / foodValue)
 	// Decide what to gather at the start of each unit.
-	if c.Gathering == 0 || c.GatherPick == nil && !c.GatherFood {
-		c.GatherPick, c.GatherFood = s.chooseGather(c, x, y, foodCost)
-		if c.GatherPick == nil && !c.GatherFood {
+	if c.Gathering == 0 || c.GatherPick == nil && c.GatherWhat == "" {
+		c.GatherPick, c.GatherWhat, c.GatherTile = s.chooseGather(c, x, y, foodCost)
+		if c.GatherPick == nil && c.GatherWhat == "" {
 			return false
 		}
 	}
 	if c.Inventory.count() >= invCapacity && !s.makeRoom(c) {
-		c.GatherPick, c.GatherFood = nil, false
+		c.GatherPick, c.GatherWhat = nil, ""
 		return false
 	}
 
-	c.Gathering += gatherRate * math.Max(1, s.toolBonus(c)) * dt
+	rate := gatherRate * math.Max(1, s.toolBonus(c))
+	switch c.GatherWhat {
+	case "harvest":
+		rate = harvestRate
+		c.action = ActHarvest
+	case "fish":
+		rate = gatherRate * (1 + 0.5*b2f(s.weaponBonus(c) > 0)) // a spear helps
+		c.action = ActFish
+	default:
+		c.action = ActGather
+	}
+	c.Gathering += rate * dt
 	s.flash(c, fxGather)
-	c.action = ActGather
 	if c.Gathering < 1 {
 		return true
 	}
 	c.Gathering = 0
-	pick, food := c.GatherPick, c.GatherFood
-	c.GatherPick, c.GatherFood = nil, false
-	if food {
+	pick, what, tile := c.GatherPick, c.GatherWhat, c.GatherTile
+	c.GatherPick, c.GatherWhat = nil, ""
+	switch what {
+	case "food":
 		if s.takeFoodAround(x, y, foodCost) {
-			c.Inventory.add(chem.Food, 1)
+			here, _ := s.terrain.index(x, y)
+			c.Inventory.add(s.eco.ForageFind(here), 1)
+		}
+		return true
+	case "harvest":
+		s.harvest(c, tile)
+		return true
+	case "fish":
+		if s.eco.TakeFish(tile) {
+			c.Inventory.add("ikan", 1)
 		}
 		return true
 	}
@@ -479,14 +534,24 @@ func (s *Sim) gather(c *Creature) bool {
 	return true
 }
 
-// chooseGather picks the most wanted thing within reach, or food from the
-// ground when that is what is needed.
-func (s *Sim) chooseGather(c *Creature, x, y int, foodCost float32) (*chem.Source, bool) {
+// chooseGather picks the most wanted thing within reach: a ripe field of
+// the family's, wild food from the ground or fish from the water when food
+// is what is needed, else a deposit.
+func (s *Sim) chooseGather(c *Creature, x, y int, foodCost float32) (*chem.Source, string, int) {
 	wants := s.wantsOf(c)
 	tool := s.toolBonus(c)
-	bestScore, food := 0.2, false
-	if s.foodAround(x, y) >= foodCost && c.Inventory[chem.Food] < 4 {
-		bestScore, food = 0.6+wants[chem.Food]*3, true
+	bestScore, what, tile := 0.2, "", 0
+	hungry := s.mealsInHand(c) < 4
+	if t, ok := s.ripeInReach(c, x, y); ok {
+		bestScore, what, tile = 1.2+wants[chem.Food]*3, "harvest", t
+	}
+	if hungry && what == "" {
+		if s.foodAround(x, y) >= foodCost {
+			bestScore, what = 0.6+wants[chem.Food]*3, "food"
+		}
+		if t, ok := s.fishInReach(x, y); ok && 0.55+wants[chem.Food]*3 > bestScore {
+			bestScore, what, tile = 0.55+wants[chem.Food]*3, "fish", t
+		}
 	}
 	var pick *chem.Source
 	sources := s.geo.Sources(x, y)
@@ -497,13 +562,13 @@ func (s *Sim) chooseGather(c *Creature, x, y int, foodCost float32) (*chem.Sourc
 		}
 		score := wants[src.Item]*3 + 0.5*s.interest[src.Item] - 0.3*float64(s.holding(c, src.Item))
 		if score > bestScore {
-			pick, bestScore, food = src, score, false
+			pick, bestScore, what = src, score, ""
 		}
 	}
-	return pick, food
+	return pick, what, tile
 }
 
-// foodAround is the food on the tile and its 8 neighbours, which can be
+// foodAround is the wild food on the tile and its 8 neighbours, which can be
 // picked to carry.
 func (s *Sim) foodAround(x, y int) float32 {
 	t := s.terrain
@@ -511,7 +576,7 @@ func (s *Sim) foodAround(x, y int) float32 {
 	for dy := -1; dy <= 1; dy++ {
 		for dx := -1; dx <= 1; dx++ {
 			if i, ok := t.index(x+dx, y+dy); ok {
-				sum += t.food[i]
+				sum += s.eco.Forage(i)
 			}
 		}
 	}
@@ -526,9 +591,7 @@ func (s *Sim) takeFoodAround(x, y int, amount float32) bool {
 	for dy := -1; dy <= 1 && amount > 0; dy++ {
 		for dx := -1; dx <= 1 && amount > 0; dx++ {
 			if i, ok := t.index(x+dx, y+dy); ok {
-				take := min(t.food[i], amount)
-				t.food[i] -= take
-				amount -= take
+				amount -= s.eco.TakeForage(i, amount)
 			}
 		}
 	}
@@ -538,7 +601,7 @@ func (s *Sim) takeFoodAround(x, y int, amount float32) bool {
 // makeRoom drops one unit of the least useful thing the creature doesn't
 // want, so a full pair of hands can still pick up what it is after.
 func (s *Sim) makeRoom(c *Creature) bool {
-	if !c.GatherFood && c.GatherPick != nil && s.wantsOf(c)[c.GatherPick.Item] == 0 {
+	if c.GatherWhat == "" && c.GatherPick != nil && s.wantsOf(c)[c.GatherPick.Item] == 0 {
 		return false
 	}
 	want := s.wantsOf(c)
@@ -546,7 +609,7 @@ func (s *Sim) makeRoom(c *Creature) bool {
 	worst := math.Inf(1)
 	for _, id := range c.Inventory.ids() {
 		it := s.cat.item(id)
-		if id == chem.Food || want[id] > 0 || it.Gather > 0 || it.Damage > 0 {
+		if it.Food > 0 || want[id] > 0 || it.Gather > 0 || it.Damage > 0 {
 			continue
 		}
 		if v := s.interest[id] + it.Value; v < worst {
@@ -572,7 +635,7 @@ func (s *Sim) wantsOf(c *Creature) map[chem.ItemID]float64 {
 // and samples that could reveal new elements at the stations that exist.
 func (s *Sim) wants(c *Creature) map[chem.ItemID]float64 {
 	w := map[chem.ItemID]float64{}
-	if c.Inventory[chem.Food] < 2 {
+	if s.mealsInHand(c) < 2 {
 		w[chem.Food] = 0.5
 	}
 	if k, ok := s.buildGoal(c); ok {
@@ -892,7 +955,7 @@ func (s *Sim) buildGoal(c *Creature) (chem.StructureKind, bool) {
 	}
 	if h := s.houseOf(c); h != nil {
 		for _, k := range s.cat.structures {
-			if (k.Farm || k.Well) && s.canPractise(c, k.Tech) && !s.amenityNear(h, k) {
+			if s.amenityWanted(c, h, k) {
 				return k, true
 			}
 		}
@@ -927,7 +990,7 @@ func (s *Sim) nextStation(c *Creature) (chem.StructureKind, bool) {
 func (s *Sim) amenityNear(h *Structure, k chem.StructureKind) bool {
 	x, y := float64(h.X)+0.5, float64(h.Y)+0.5
 	if k.Well {
-		if i, ok := s.terrain.index(h.X, h.Y); ok && s.terrain.nearWater[i] {
+		if i, ok := s.terrain.index(h.X, h.Y); ok && s.terrain.nearFresh[i] {
 			return true
 		}
 	}
@@ -1018,7 +1081,13 @@ func (s *Sim) chooseBuild(c *Creature) *buildPlan {
 	}
 	if home != nil {
 		for _, k := range s.cat.structures {
-			if (k.Farm || k.Well) && s.canPractise(c, k.Tech) && s.canBuildWith(c, k.Cost) && !s.amenityNear(home, k) {
+			if s.amenityWanted(c, home, k) && s.canBuildWith(c, k.Cost) {
+				if k.Irrigation {
+					if p := s.placeIrrigation(home, k); p != nil {
+						return p
+					}
+					continue
+				}
 				return place(k)
 			}
 		}
@@ -1100,7 +1169,7 @@ func (s *Sim) addStructure(k chem.StructureKind, x, y int, owner *Creature) *Str
 	}
 	s.nextStructID++
 	s.indexStructure(st)
-	if k.Farm {
+	if k.Farm || k.Irrigation || k.Pen {
 		s.applyFarms()
 	}
 	return st
@@ -1147,22 +1216,4 @@ func (s *Sim) removeBlockedStructures() {
 		}
 	}
 	s.recomputeTier()
-}
-
-// applyFarms makes the tiles around every farm fertile.
-func (s *Sim) applyFarms() {
-	t := s.terrain
-	for _, st := range s.structures {
-		if !st.kind.Farm {
-			continue
-		}
-		for dy := -1; dy <= 1; dy++ {
-			for dx := -1; dx <= 1; dx++ {
-				if i, ok := t.index(st.X+dx, st.Y+dy); ok && !t.blocked[i] {
-					t.foodCap[i] = max(t.foodCap[i], farmFood)
-					t.foodRate[i] = max(t.foodRate[i], farmRegrow)
-				}
-			}
-		}
-	}
 }

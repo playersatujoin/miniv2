@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"miniv2/backend/internal/chem"
+	"miniv2/backend/internal/ecology"
 	"miniv2/backend/internal/world"
 )
 
@@ -23,15 +24,15 @@ const (
 	dt             = 1.0 / TicksPerSecond
 
 	// SecondsPerYear is the world's time scale: one simulated year lasts 8
-	// simulated seconds. Ages, lifespans and demographic rates use it.
-	SecondsPerYear = 8.0
+	// simulated seconds. Ages, lifespans, seasons and demographic rates use it.
+	SecondsPerYear = ecology.SecondsPerYear
 
 	archiveSize   = 20
 	founderNoise  = 0.5 // the first couple's brains are mostly instinct
 	historyEvery  = 5 * TicksPerSecond
 	historyMax    = 720
 	eventsMax     = 80
-	foodEvery     = 10                  // regrow food and deposits in batches every N ticks
+	foodEvery     = 10                  // regrow deposits in batches every N ticks
 	resourceEvery = 10 * TicksPerSecond // refresh the "sumber daya" map
 	abilityEvery  = TicksPerSecond      // re-check "bisa membuat/membangun" once a second
 )
@@ -49,18 +50,34 @@ const (
 	visionCost    = 0.0004
 	pregnancyCost = 0.002
 	thirstRate    = 0.004
-	eatRate       = 0.25
+	eatRate       = 0.6
 	foodValue     = 0.8
 	drinkRate     = 0.25
 
 	healRate      = 0.01
 	reputationAge = 300.0 // seconds for reputation to fade by ~63 %
+
+	// Fase 2: bodies burn energy three times faster than before, so a person
+	// with nothing to eat lasts about three years on the move (eight at rest)
+	// instead of a decade, and a dry season or an El Niño drought matters.
+	// Faster (4–6×) starves the first families outright on wild food; see
+	// PLAN.md, Hasil Fase 2.
+	// Real fasting lasts about two months; like everything here it is
+	// compressed, but now on the scale of the seasons.
+	hungerScale = 3.0
+	// Only rivers and lakes can be drunk from, so how long a body lasts dry
+	// decides how far people can range from them. At 8× a person lasts
+	// about four years without water, a little longer than without food on
+	// the move. In life thirst kills far sooner; faster thirst than this
+	// kills the first families before they find their way around.
+	thirstScale = 8.0
 )
 
 // Reproduction.
 const (
 	adultAge     = 15 * SecondsPerYear // grown up at 15
 	mateRange    = 1.2
+	spouseRange  = 3.0
 	partnerRange = 1.5
 	mateEnergy   = 0.4
 	conceiveCost = 0.08
@@ -114,6 +131,10 @@ const (
 	ActSteal   Action = "steal"
 	ActAttack  Action = "attack"
 	ActTeach   Action = "teach"
+	ActPlant   Action = "plant"
+	ActHunt    Action = "hunt"
+	ActHarvest Action = "harvest"
+	ActFish    Action = "fish"
 )
 
 type Ref struct {
@@ -135,6 +156,10 @@ type Deeds struct {
 	Built       int `json:"built"`
 	Crafted     int `json:"crafted"`
 	Discoveries int `json:"discoveries"`
+	Planted     int `json:"planted"`
+	Harvested   int `json:"harvested"`
+	Hunted      int `json:"hunted"`
+	Tamed       int `json:"tamed"`
 }
 
 // Short-lived visual effects shown in stream frames, indexed into Creature.fx.
@@ -146,6 +171,8 @@ const (
 	fxCraft
 	fxGather
 	fxTeach
+	fxPlant
+	fxHunt
 	numFX
 )
 
@@ -177,10 +204,14 @@ type Creature struct {
 	ActCD      float64    `json:"actCooldown,omitempty"` // seconds until the next give/steal/attack
 	Hurt       float64    `json:"hurt,omitempty"`        // seconds the "diserang" sense stays lit
 	Offender   *Ref       `json:"offender,omitempty"`    // who last attacked or robbed them
-	Genome     *Genome    `json:"genome"`
-	Mind       *Mind      `json:"mind"`
-	Hidden     []float64  `json:"hidden"`
-	Bumped     bool       `json:"bumped,omitempty"` // fed back as an input next tick
+	Mauled     string     `json:"mauled,omitempty"`      // the animal species that last hurt them
+	// Where it last drank: people remember the way back to the river.
+	WaterX float64   `json:"waterX,omitempty"`
+	WaterY float64   `json:"waterY,omitempty"`
+	Genome *Genome   `json:"genome"`
+	Mind   *Mind     `json:"mind"`
+	Hidden []float64 `json:"hidden"`
+	Bumped bool      `json:"bumped,omitempty"` // fed back as an input next tick
 
 	// Culture: what this creature knows how to do, who is teaching it now,
 	// and whom it has taught.
@@ -195,7 +226,8 @@ type Creature struct {
 	IdleWork   float64                 `json:"idleWork,omitempty"` // seconds before looking for a new job after finding none
 	Want       map[chem.ItemID]float64 `json:"want,omitempty"`
 	GatherPick *chem.Source            `json:"gatherPick,omitempty"` // the deposit being gathered, or
-	GatherFood bool                    `json:"gatherFood,omitempty"` // food from the ground
+	GatherWhat string                  `json:"gatherWhat,omitempty"` // "food" from the ground, "harvest" or "fish"
+	GatherTile int                     `json:"gatherTile,omitempty"` // the field or water being harvested or fished
 
 	// Per-tick state, recomputed every step.
 	input     [NumInputs]float64
@@ -207,6 +239,7 @@ type Creature struct {
 	action    Action
 	fx        [numFX]int64 // tick until which each effect shows
 	wantVec   []float32    // Want indexed like tileItems, for the senses
+	skills    skillVec     // Skills by technology index, refreshed each tick
 	sample    bool         // carries something a station could reveal an element from
 }
 
@@ -215,6 +248,7 @@ type deathCounts struct {
 	Thirst     int `json:"thirst"`
 	OldAge     int `json:"oldAge"`
 	Killed     int `json:"killed"`
+	Animal     int `json:"animal"` // killed by a wild animal
 }
 
 type HistoryPoint struct {
@@ -283,6 +317,13 @@ type Sim struct {
 	structVersion int64
 	tier          int
 
+	// Fase 2: the living land, and how often the technical population limit
+	// stopped a conception (it should never bite in a normal world).
+	eco        *ecology.Ecology
+	ecoHistory []EcoPoint
+	capHits    int
+	lastEcoEvt map[string]float64 // when each kind of farming/hunting event was last reported
+
 	elements map[string]*Discovery
 	techs    map[string]*Discovery
 
@@ -294,6 +335,7 @@ type Sim struct {
 	knowledgeLost  int
 	lastLearnEvent float64
 	learnedVia     map[string]int // how people became able to practise something, all-time
+	techIndex      map[string]int // technology → position in skillVec
 
 	births         int
 	deaths         int
@@ -331,6 +373,19 @@ type Options struct {
 	// tell their effects apart.
 	NoPlasticity bool `json:"noPlasticity,omitempty"`
 	NoCulture    bool `json:"noCulture,omitempty"`
+
+	// Fase 2 switches. NoHumans leaves the island to the animals (no Adam
+	// and Hawa); NoFarming stops anyone from planting; NoClimate keeps the
+	// rain at its yearly average (no seasons, no El Niño); NoFauna removes
+	// wild animals.
+	NoHumans  bool `json:"noHumans,omitempty"`
+	NoFarming bool `json:"noFarming,omitempty"`
+	NoClimate bool `json:"noClimate,omitempty"`
+	NoFauna   bool `json:"noFauna,omitempty"`
+}
+
+func (o Options) ecology() ecology.Options {
+	return ecology.Options{NoClimate: o.NoClimate, NoFauna: o.NoFauna}
 }
 
 func (s *Sim) noPlasticity() bool { return s.opts.NoLearning || s.opts.NoPlasticity }
@@ -359,10 +414,12 @@ func newSimWith(m *world.Map, seed uint64, cat *catalog) *Sim {
 		lost:         map[string]bool{},
 		lastHolder:   map[string]Ref{},
 		stats:        newDemography(),
+		lastEcoEvt:   map[string]float64{},
 		// The first learning in a world is always reported.
 		lastLearnEvent: -learnEventGap,
 	}
 	s.setTerrain(newTerrain(m))
+	s.eco = ecology.New(ecology.LandFromMap(m), s.rng, ecology.Options{}, 0)
 	if cat.newGeology != nil {
 		s.geo = cat.newGeology(m)
 	} else {
@@ -382,6 +439,10 @@ func New(m *world.Map, seed uint64) *Sim {
 func NewWithOptions(m *world.Map, seed uint64, opts Options) *Sim {
 	s := newSim(m, seed)
 	s.opts = opts
+	if opts.ecology() != (ecology.Options{}) {
+		s.eco = ecology.New(ecology.LandFromMap(m), s.rng, opts.ecology(), 0)
+	}
+	s.applyFarms()
 	s.genesis()
 	s.frames.publish(s.encodeFrame())
 	return s
@@ -397,7 +458,9 @@ func (s *Sim) setTerrain(t *terrain) {
 			}
 		}
 	}
-	s.capacity = int(clamp(float64(len(t.walkable))/60, 20, 250))
+	// Not a carrying capacity: food, water and space set that. This is only
+	// a technical ceiling so a runaway world can't stall the server.
+	s.capacity = int(clamp(float64(len(t.walkable))/6, 300, 2000))
 }
 
 func (s *Sim) time() float64 { return float64(s.tick) * dt }
@@ -438,6 +501,8 @@ func (s *Sim) spawnAdult(g *Genome, sex Sex, name string, x, y float64) *Creatur
 		Hydration: 1,
 		Health:    1,
 		Genome:    g,
+		WaterX:    x, // the first people start by water and know it
+		WaterY:    y,
 	}
 	s.giveBrain(c)
 	s.nextID++
@@ -491,13 +556,20 @@ func (s *Sim) Advance(n int) {
 func (s *Sim) step() {
 	s.tick++
 	if s.tick%foodEvery == 0 {
-		s.terrain.regrow(foodEvery * dt)
 		s.geo.Regrow(foodEvery * dt)
 	}
 	if s.tick%resourceEvery == 0 {
 		s.refreshResources()
+		s.updateWoodland()
 	}
 	s.grid.rebuild(s.terrain.w, s.terrain.h, s.creatures)
+	if !s.noCulture() {
+		s.refreshSkillVecs()
+	}
+	s.eco.Tick(s.tick, s.time(), dt, s)
+	for _, ev := range s.eco.TakeEvents() {
+		s.event(ev.Kind, ev.Text, 0)
+	}
 	for _, c := range s.creatures {
 		if c.Health <= 0 {
 			continue // killed earlier this tick
@@ -514,13 +586,16 @@ func (s *Sim) step() {
 	if s.tick%TicksPerSecond == 0 {
 		s.stats.expose(s)
 		s.cultureTick()
+		s.spoil()
+		s.eco.Current().Population = len(s.creatures)
 	}
-	if len(s.creatures) == 0 {
+	if len(s.creatures) == 0 && !s.opts.NoHumans {
 		s.event("milestone", fmt.Sprintf("Manusia punah di era %d. Adam & Hawa baru memulai era %d.", s.era, s.era+1), 0)
 		s.genesis()
 	}
 	if s.tick%historyEvery == 0 {
 		s.sample()
+		s.sampleEcology()
 	}
 	if s.tick%demographyEvery == 0 {
 		s.stats.sample(s)
@@ -556,9 +631,6 @@ func (s *Sim) unborn() int {
 func (s *Sim) mate() {
 	room := s.capacity - len(s.creatures) - s.unborn()
 	for _, f := range s.creatures {
-		if room <= 0 {
-			return
-		}
 		if f.Sex != Female || !f.wantsMate || !s.fertile(f) || f.Energy < mateEnergy || f.Health <= 0 {
 			continue
 		}
@@ -572,7 +644,16 @@ func (s *Sim) mate() {
 				best, bestD = m, d
 			}
 		})
+		// A married couple shares a camp: being within a few tiles is enough.
+		if sp := s.livingSpouse(f); best == nil && sp != nil && sp.wantsMate && s.fertile(sp) &&
+			sp.Energy >= mateEnergy && math.Hypot(sp.X-f.X, sp.Y-f.Y) <= spouseRange {
+			best = sp
+		}
 		if best == nil {
+			continue
+		}
+		if room <= 0 {
+			s.capHits++
 			continue
 		}
 		f.Pregnancy = &Pregnancy{
@@ -605,6 +686,7 @@ func (s *Sim) gestate() {
 			n = 2
 		}
 		s.stats.delivery(s, f, n)
+		s.eco.Current().Births += n
 		for range n {
 			born = append(born, s.newChild(f, p))
 		}
@@ -653,8 +735,10 @@ func (s *Sim) newChild(mother *Creature, p *Pregnancy) *Creature {
 		Genome:     g,
 	}
 	s.giveBrain(c)
-	// Children grow up in their mother's home, else their father's.
+	// Children grow up in their mother's home, else their father's, and
+	// know where she fetches water.
 	c.HouseID = mother.HouseID
+	c.WaterX, c.WaterY = mother.WaterX, mother.WaterY
 	if father := s.byID[p.Father.ID]; c.HouseID == 0 && father != nil {
 		c.HouseID = father.HouseID
 	}
@@ -678,6 +762,8 @@ func (s *Sim) reap() {
 	for _, c := range dead {
 		cause := "oldAge"
 		switch {
+		case c.Health <= 0 && c.Mauled != "":
+			cause = "animal"
 		case c.Health <= 0:
 			cause = "killed"
 		case c.Energy <= 0:
@@ -694,11 +780,16 @@ func (s *Sim) die(c *Creature, cause string) {
 	s.deaths++
 	age := s.age(c)
 	s.stats.death(s, c, cause)
+	s.eco.Current().Deaths++
 	var how string
 	switch cause {
 	case "starvation":
 		s.deathsBy.Starvation++
+		s.eco.Current().Starved++
 		how = "mati kelaparan"
+	case "animal":
+		s.deathsBy.Animal++
+		how = animalKill(c.Mauled)
 	case "thirst":
 		s.deathsBy.Thirst++
 		how = "mati kehausan"
@@ -715,7 +806,7 @@ func (s *Sim) die(c *Creature, cause string) {
 		s.deathsBy.OldAge++
 		how = "meninggal karena usia tua"
 	}
-	s.addEvent("death", fmt.Sprintf("%s %s %s pada usia %s", c.Name, c.Sex.symbol(), how, fmtAge(age)), c.ID, cause == "killed")
+	s.addEvent("death", fmt.Sprintf("%s %s %s pada usia %s", c.Name, c.Sex.symbol(), how, fmtAge(age)), c.ID, cause == "killed" || cause == "animal")
 	s.leaveBelongings(c)
 	s.inherit(c)
 	d := c.Deeds
@@ -743,10 +834,13 @@ func (s *Sim) remember(g *Genome, fitness float64) {
 	}
 }
 
-// genesis places a new first couple, Adam and Hawa, side by side on the shore.
+// genesis places a new first couple, Adam and Hawa, side by side by fresh water.
 // Every later human descends from them. After an extinction the next couple is
 // bred from the most successful genomes of earlier eras, so progress carries over.
 func (s *Sim) genesis() {
+	if s.opts.NoHumans {
+		return
+	}
 	x, y, ok := s.eden()
 	if !ok {
 		return
@@ -763,8 +857,9 @@ func (s *Sim) genesis() {
 	s.event("genesis", fmt.Sprintf("Era %d dimulai: Hawa %s", s.era, hawa.Sex.symbol()), hawa.ID)
 }
 
-// eden picks the most fertile of a sample of shore spots: water and plenty of
-// food within reach, a garden for the first couple.
+// eden picks the most fertile of a sample of spots by a river or lake (or the
+// shore, on a map without fresh water): water and plenty of food within
+// reach, a garden for the first couple.
 func (s *Sim) eden() (float64, float64, bool) {
 	t := s.terrain
 	bx, by, ok := t.randomSpot(s.rng)
@@ -778,7 +873,7 @@ func (s *Sim) eden() (float64, float64, bool) {
 		for dy := -3; dy <= 3; dy++ {
 			for dx := -3; dx <= 3; dx++ {
 				if i, in := t.index(int(x)+dx, int(y)+dy); in {
-					food += float64(t.foodCap[i])
+					food += float64(s.eco.Forage(i))
 				}
 			}
 		}
@@ -873,14 +968,8 @@ func (s *Sim) SetSpeed(v int) error {
 func (s *Sim) UpdateMap(m *world.Map) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	old := s.terrain
-	t := newTerrain(m)
-	if len(old.food) == len(t.food) {
-		for i, f := range old.food {
-			t.food[i] = min(f, t.foodCap[i])
-		}
-	}
-	s.setTerrain(t)
+	s.setTerrain(newTerrain(m))
+	s.eco.UpdateLand(ecology.LandFromMap(m))
 	s.geo.Update(m)
 	s.removeBlockedStructures()
 	s.applyFarms()

@@ -3,12 +3,14 @@ import { useEffect, useRef, useState } from 'react'
 import { knowledgeQuery, simInfoQuery } from '../../sim/api'
 import { CivilizationView } from './CivilizationView'
 import { Demography } from './Demography'
+import { Ecology, SeasonBadges } from './Ecology'
 import { EventLog } from './EventLog'
 import { Inspector } from './Inspector'
 import { PeriodicTable } from './PeriodicTable'
 import { PopulationChart } from './PopulationChart'
 import { PopulationStats } from './PopulationStats'
 import { SpeedControl } from './SpeedControl'
+import { MONTH_NAMES } from '../../sim/protocol'
 import { DEFAULT_SECONDS_PER_YEAR, SecondsPerYearContext, nf, yearAt } from './format'
 import './sim.css'
 
@@ -20,10 +22,11 @@ export type ObserverPanelProps = {
   onFollow: (follow: boolean) => void
 }
 
-type Tab = 'population' | 'civilization' | 'elements'
+type Tab = 'population' | 'ecology' | 'civilization' | 'elements'
 
 const TABS: { id: Tab; label: string }[] = [
   { id: 'population', label: 'Populasi' },
+  { id: 'ecology', label: 'Ekologi' },
   { id: 'civilization', label: 'Peradaban' },
   { id: 'elements', label: 'Unsur' },
 ]
@@ -32,9 +35,10 @@ const TABS: { id: Tab; label: string }[] = [
 export function ObserverPanel({ mapId, selectedId, following, onSelect, onFollow }: ObserverPanelProps) {
   const [tab, setTab] = useState<Tab>('population')
   const info = useQuery(simInfoQuery(mapId))
-  const knowledge = useQuery({ ...knowledgeQuery(mapId), enabled: tab !== 'population' })
+  const knowledge = useQuery({ ...knowledgeQuery(mapId), enabled: tab === 'civilization' || tab === 'elements' })
   const data = info.data
   const spy = data?.secondsPerYear && data.secondsPerYear > 0 ? data.secondsPerYear : DEFAULT_SECONDS_PER_YEAR
+  const month = data ? MONTH_NAMES[Math.floor(((Math.max(0, data.time) / spy) % 1) * 12)] : undefined
   const ref = useRef<HTMLElement>(null)
 
   // Bring the inspector into view when a creature gets picked (e.g. from the event log).
@@ -53,6 +57,7 @@ export function ObserverPanel({ mapId, selectedId, following, onSelect, onFollow
           </h2>
           <span className="obs-clock">
             {data ? `Tahun ${nf.format(data.year ?? yearAt(data.time, spy))}` : '—'}
+            <SeasonBadges season={data?.season} enso={data?.enso} title={month && `Bulan ${month}`} />
             {data?.speed === 0 && <span className="obs-paused">dijeda</span>}
           </span>
         </div>
@@ -105,7 +110,7 @@ export function ObserverPanel({ mapId, selectedId, following, onSelect, onFollow
             {data ? (
               <>
                 <PopulationStats info={data} />
-                <PopulationChart history={data.history ?? []} capacity={data.capacity} />
+                <PopulationChart history={data.history ?? []} />
                 <Demography mapId={mapId} />
               </>
             ) : (
@@ -114,6 +119,7 @@ export function ObserverPanel({ mapId, selectedId, following, onSelect, onFollow
             <EventLog events={data?.events ?? []} onSelect={onSelect} />
           </>
         )}
+        {tab === 'ecology' && <Ecology mapId={mapId} />}
         {tab === 'civilization' && (
           <CivilizationView
             knowledge={knowledge.data}

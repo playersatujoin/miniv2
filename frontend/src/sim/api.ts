@@ -1,6 +1,6 @@
 import { queryOptions, useMutation, useQueryClient } from '@tanstack/react-query'
 import { request } from '../api/client'
-import type { CreatureDetail, Demography, Knowledge, MinedOut, SimInfo, SimSpeed } from './protocol'
+import type { CreatureDetail, Demography, Ecology, Knowledge, MinedOut, SimInfo, SimSpeed } from './protocol'
 
 export const simInfoQuery = (mapId: string) =>
   queryOptions({
@@ -34,7 +34,15 @@ export const demographyQuery = (mapId: string) =>
     refetchInterval: 3000,
   })
 
-/** Mined-out deposits (old pits) of a living world. */
+/** The land: seasons and weather, animals, fields and food, with their history. */
+export const ecologyQuery = (mapId: string) =>
+  queryOptions({
+    queryKey: ['sim', mapId, 'ecology'],
+    queryFn: () => request<Ecology>(`/maps/${mapId}/sim/ecology`),
+    refetchInterval: 3000,
+  })
+
+/** Mined-out deposits (old pits) and felled trees (stumps) of a living world. */
 export const minedOutQuery = (mapId: string) =>
   queryOptions({
     queryKey: ['sim', mapId, 'mined'],

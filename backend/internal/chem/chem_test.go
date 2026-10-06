@@ -157,7 +157,7 @@ func TestDataIntegrity(t *testing.T) {
 				t.Errorf("%s costs %d %s", s.ID, n, id)
 			}
 		}
-		if s.House != (s.Level > 0) || s.House != (s.Storage > 0) {
+		if s.House != (s.Level > 0) || (s.House || s.Granary) != (s.Storage > 0) {
 			t.Errorf("%s: house=%v level=%d storage=%d", s.ID, s.House, s.Level, s.Storage)
 		}
 		if s.Upgrades != "" {
@@ -266,6 +266,16 @@ func playForward(g *Geology) progress {
 		}
 	}
 	techOK := func(id string) bool { return id == "" || p.known[id] }
+	// Farming and herding come from living off the land, not from recipes:
+	// wild crops and animals are there from the start.
+	learn(HerdingTech)
+	for _, c := range crops {
+		if c.WildChance > 0 {
+			learn(FarmingTech)
+			p.have[c.Item] = true
+		}
+	}
+	p.have["daging"], p.have["ikan"] = true, true
 	all := func(m map[ItemID]int) bool {
 		for id := range m {
 			if !p.have[id] {
@@ -913,5 +923,46 @@ func TestMinedOutListsDugOutMinerals(t *testing.T) {
 	g.Regrow(1000)
 	if len(g.MinedOut()) != 1 {
 		t.Fatal("a mine should not grow back")
+	}
+}
+
+func TestCropsAreComplete(t *testing.T) {
+	grounds := map[string]bool{}
+	for _, g := range world.GroundTiles {
+		if !g.Solid {
+			grounds[g.Key] = true
+		}
+	}
+	seen := map[ItemID]bool{}
+	for _, c := range Crops() {
+		if seen[c.Item] {
+			t.Errorf("crop %s listed twice", c.Item)
+		}
+		seen[c.Item] = true
+		it, ok := ItemByID(c.Item)
+		if !ok || it.Food <= 0 || it.Keeps <= 0 {
+			t.Errorf("crop %s: item missing, inedible or never spoiling", c.Item)
+		}
+		if c.Name == "" || c.GrowYears <= 0 || c.Yield <= 0 || c.Water <= 0 || c.Water > 1 || c.Drain < 0 || c.WildChance <= 0 {
+			t.Errorf("crop %s is incomplete: %+v", c.Item, c)
+		}
+		if (c.RepeatYears > 0) != (c.LifeYears > 0) {
+			t.Errorf("crop %s: a perennial needs both RepeatYears and LifeYears", c.Item)
+		}
+		for _, list := range [][]string{c.Ground, c.Wild} {
+			if len(list) == 0 {
+				t.Errorf("crop %s has no ground", c.Item)
+			}
+			for _, g := range list {
+				if !grounds[g] {
+					t.Errorf("crop %s: %q is not a walkable ground tile", c.Item, g)
+				}
+			}
+		}
+	}
+	for _, id := range []ItemID{"daging", "ikan", "daging_asap", "ikan_asin"} {
+		if it, ok := ItemByID(id); !ok || it.Food <= 0 || it.Keeps <= 0 {
+			t.Errorf("food %s missing, inedible or never spoiling", id)
+		}
 	}
 }

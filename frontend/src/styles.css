@@ -469,6 +469,10 @@ button:focus-visible,
   color: #d9b08c;
 }
 
+.hud-plot {
+  color: #a8d98a;
+}
+
 .hud em {
   color: var(--danger);
   font-style: normal;

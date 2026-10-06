@@ -4,7 +4,9 @@ import { formatClockShort, useSecondsPerYear } from './format'
 
 // Dots are a secondary cue; the kind label next to each dot carries the meaning.
 // The eight palette hues are taken, so "learning" shares discovery's blue (both
-// are knowledge) but is drawn as a ring instead of a filled dot.
+// are knowledge) but is drawn as a ring instead of a filled dot. The land's
+// events (Alam) are rings too, each on a different hue: climate aqua, ecology
+// green, farming yellow (ripe grain), hunting orange.
 const KIND: Record<SimEventKind | 'immigrant', { label: string; color: string; ring?: boolean }> = {
   birth: { label: 'Lahir', color: '#199e70' },
   death: { label: 'Wafat', color: '#898781' },
@@ -16,6 +18,10 @@ const KIND: Record<SimEventKind | 'immigrant', { label: string; color: string; r
   kindness: { label: 'Kebaikan', color: '#008300' },
   family: { label: 'Keluarga', color: '#d55181' },
   learning: { label: 'Belajar', color: '#3987e5', ring: true },
+  climate: { label: 'Iklim', color: '#199e70', ring: true },
+  ecology: { label: 'Ekologi', color: '#008300', ring: true },
+  farming: { label: 'Pertanian', color: '#c98500', ring: true },
+  hunt: { label: 'Perburuan', color: '#d95926', ring: true },
   immigrant: { label: 'Pendatang', color: '#9085e9' },
 }
 
@@ -24,14 +30,18 @@ const FILTERS: { id: string; label: string; kinds: string[] | null }[] = [
   { id: 'life', label: 'Hidup & mati', kinds: ['birth', 'death', 'genesis', 'family'] },
   { id: 'progress', label: 'Kemajuan', kinds: ['discovery', 'build', 'milestone', 'learning'] },
   { id: 'moral', label: 'Moral', kinds: ['crime', 'kindness'] },
+  { id: 'nature', label: 'Alam', kinds: ['climate', 'ecology', 'farming', 'hunt'] },
 ]
 
 const HIDE_VIOLENCE_KEY = 'miniv2.hideViolence'
 
-/** Assaults and killings. Older servers don't flag events, so fall back to their wording. */
+/** Assaults, killings and deaths by animals. Older servers don't flag events, so fall back to their wording. */
 function isViolent(e: SimEvent) {
   if (e.violent != null) return e.violent
-  return (e.kind === 'crime' && /menyerang/.test(e.text)) || (e.kind === 'death' && /dibunuh/.test(e.text))
+  return (
+    (e.kind === 'crime' && /menyerang/.test(e.text)) ||
+    (e.kind === 'death' && /dibunuh|diterkam|diseruduk|ditanduk/.test(e.text))
+  )
 }
 
 /** "Sembunyikan kekerasan", remembered per viewer (best effort: storage may be unavailable). */

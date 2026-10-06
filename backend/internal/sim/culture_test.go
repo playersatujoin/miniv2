@@ -319,3 +319,39 @@ func BenchmarkStep150(b *testing.B) {
 		})
 	}
 }
+
+func TestFastTeacherSenseMatchesTheSkillMaps(t *testing.T) {
+	s, x, y := calmWorld(t)
+	rng := rand.New(rand.NewPCG(9, 9))
+	var people []*Creature
+	for k := range 40 {
+		c := person(s, Sex(k%2), "Orang", x, y)
+		for _, tech := range s.cat.techs {
+			if rng.IntN(3) == 0 {
+				c.Skills = mapSet(c.Skills, tech.ID, rng.Float64())
+			}
+		}
+		if k%13 == 0 {
+			c.Skills = mapSet(c.Skills, "ilmu_gaib", 0.9) // not in the catalog
+		}
+		people = append(people, c)
+	}
+	s.refreshSkillVecs()
+	for _, a := range people {
+		for _, b := range people {
+			ft, fs := s.teacherOrStudentNear(a, b)
+			st, ss := s.teacherOrStudentSlow(a, b)
+			if ft != st || fs != ss {
+				t.Fatalf("fast (%v, %v) vs maps (%v, %v) for %v and %v", ft, fs, st, ss, a.Skills, b.Skills)
+			}
+		}
+	}
+}
+
+func mapSet(m map[string]float64, k string, v float64) map[string]float64 {
+	if m == nil {
+		m = map[string]float64{}
+	}
+	m[k] = v
+	return m
+}

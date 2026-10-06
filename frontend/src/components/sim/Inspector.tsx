@@ -345,6 +345,18 @@ function HouseCard({ house, selfId, onSelect }: { house: HouseDetail; selfId: nu
         </dd>
       </dl>
       <Chips stacks={house.storage} empty="Gudang kosong." />
+      {house.granary?.length > 0 && (
+        <>
+          <h5 className="obs-house-sub">🌾 Lumbung</h5>
+          <Chips stacks={house.granary} empty="Lumbung kosong." />
+        </>
+      )}
+      {house.livestock?.length > 0 && (
+        <>
+          <h5 className="obs-house-sub">🐔 Ternak</h5>
+          <Chips stacks={house.livestock} empty="Belum punya ternak." />
+        </>
+      )}
     </div>
   )
 }
@@ -356,6 +368,10 @@ const DEEDS: { key: keyof Deeds; label: string }[] = [
   { key: 'built', label: '🔨 Dibangun' },
   { key: 'crafted', label: '⚒ Dibuat' },
   { key: 'discoveries', label: '⚗ Penemuan' },
+  { key: 'planted', label: '🌱 Menanam' },
+  { key: 'harvested', label: '🌾 Memanen' },
+  { key: 'hunted', label: '🏹 Berburu' },
+  { key: 'tamed', label: '🐔 Menjinakkan' },
 ]
 
 function DeedsGrid({ deeds }: { deeds: Deeds }) {
@@ -364,7 +380,7 @@ function DeedsGrid({ deeds }: { deeds: Deeds }) {
       <h4 className="obs-subtitle">Perbuatan</h4>
       <div className="obs-stat-grid obs-deeds">
         {DEEDS.map((d) => (
-          <div key={d.key} className="obs-stat">
+          <div key={d.key} className="obs-stat" title={d.label}>
             <span className="obs-stat-label">{d.label}</span>
             <strong>{nf.format(deeds[d.key] ?? 0)}</strong>
           </div>

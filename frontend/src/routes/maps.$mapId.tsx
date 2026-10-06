@@ -9,6 +9,7 @@ import { GameCanvas } from '../game/GameCanvas'
 import { GeologyLegend, useGeologyOverlay } from '../game/GeologyLegend'
 import type { Brush, EngineEvents, GameEngine, HoverInfo, Mode, Tool } from '../game/engine'
 import { minedOutQuery } from '../sim/api'
+import { CROPS, PLOT_FLAG, type FieldPlot } from '../sim/protocol'
 import { useSimStream, type StreamStatus } from '../sim/stream'
 
 type MapSearch = {
@@ -82,6 +83,7 @@ function MapEditor({ map, tiles, mode, selectedId }: EditorProps) {
   const streamStatus = useSimStream(map.id, mode === 'watch', {
     onFrame: (frame) => engineRef.current?.setCreatureFrame(frame),
     onStructures: (msg) => engineRef.current?.setStructures(msg.structures),
+    onFields: (msg) => engineRef.current?.setFields(msg.plots),
   })
 
   // Selecting a creature (on the map or in the panel) also points the camera at it.
@@ -283,6 +285,8 @@ function MapEditor({ map, tiles, mode, selectedId }: EditorProps) {
                   </span>
                 ))}
                 {hover.minedOut && <span className="hud-mined"> · bekas tambang (habis digali)</span>}
+                {hover.stump && <span className="hud-mined"> · tunggul (pohon ditebang)</span>}
+                {hover.plot && <span className="hud-plot"> · 🌱 {plotText(hover.plot)}</span>}
                 {(hover.ground?.solid || hover.object?.solid) && <em> — blok</em>}
               </span>
             ) : mode === 'play' && playerTile ? (
@@ -311,6 +315,18 @@ function MapEditor({ map, tiles, mode, selectedId }: EditorProps) {
       </div>
     </main>
   )
+}
+
+const PLOT_STAGES = ['bibit', 'tumbuh', 'besar', 'siap panen']
+
+/** "Padi (siap panen, sawah)" for the HUD. */
+function plotText(p: FieldPlot) {
+  const notes = [PLOT_STAGES[p.stage] ?? '']
+  if (p.flags & PLOT_FLAG.withered) notes.push('layu kekeringan')
+  if (p.flags & PLOT_FLAG.irrigated) notes.push(p.crop === 0 ? 'sawah' : 'diairi')
+  if (p.flags & PLOT_FLAG.farmland) notes.push('ladang')
+  if (p.flags & PLOT_FLAG.manured) notes.push('berpupuk')
+  return `${CROPS[p.crop]?.name ?? 'Tanaman'} (${notes.join(', ')})`
 }
 
 function MapError({ error }: ErrorComponentProps) {

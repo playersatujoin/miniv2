@@ -66,6 +66,8 @@ export function CivilizationView({ knowledge, info, error, onSelect }: Props) {
             <RateTile label="☠ Pembunuhan" rate={info.killsPerYear} total={info.kills} />
             {info.avgBrainSize != null && <Tile label="🧠 Otak rata-rata" value={info.avgBrainSize} suffix=" neuron" fraction />}
             {info.knowledgeLost != null && <Tile label="📉 Ilmu hilang" value={info.knowledgeLost} suffix=" kali" />}
+            {info.livestock != null && <Tile label="🐔 Ternak" value={info.livestock} suffix=" ekor" />}
+            {info.plots != null && <Tile label="🌾 Petak ladang" value={info.plots} />}
           </div>
           {info.kindnessPerYear != null && <p className="small muted">Laju per tahun selama 50 tahun terakhir; total sepanjang masa di tooltip.</p>}
         </section>
@@ -103,7 +105,11 @@ export function CivilizationView({ knowledge, info, error, onSelect }: Props) {
         <StructureGroup title="Rumah keluarga" kinds={kinds.filter((k) => k.house)} />
         <StructureGroup title="Stasiun ilmu" kinds={kinds.filter((k) => !k.house && k.tier > 0 && !isLibrary(k))} />
         <StructureGroup title="Tulisan & ilmu" kinds={kinds.filter((k) => !k.house && isLibrary(k))} />
-        <StructureGroup title="Lainnya" kinds={kinds.filter((k) => !k.house && !k.tier && !isLibrary(k))} />
+        <StructureGroup title="Pertanian & ternak" kinds={kinds.filter((k) => !k.house && isFarming(k))} />
+        <StructureGroup
+          title="Lainnya"
+          kinds={kinds.filter((k) => !k.house && !k.tier && !isLibrary(k) && !isFarming(k))}
+        />
       </section>
     </div>
   )
@@ -209,6 +215,10 @@ function TechRow({
 
 /** Libraries keep written skills alive after their holders die. */
 const isLibrary = (k: StructureKindInfo) => k.id === 'perpustakaan'
+
+/** Fields, irrigation, granaries and pens: what farming and herding build. */
+const FARMING_KINDS = new Set(['ladang', 'saluran_irigasi', 'lumbung', 'kandang'])
+const isFarming = (k: StructureKindInfo) => FARMING_KINDS.has(k.id)
 
 function StructureGroup({ title, kinds }: { title: string; kinds: StructureKindInfo[] }) {
   if (kinds.length === 0) return null

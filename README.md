@@ -44,15 +44,16 @@ Semua (UI + API) dilayani di http://localhost:8080. Flag: `-addr`, `-data`, `-st
 Setiap peta punya dunianya sendiri yang **terus berjalan di server Go** — juga saat browser ditutup — dan disimpan ke `backend/data/sims/<mapId>.json.gz` (tiap menit dan saat server berhenti).
 
 - **Awal**: setiap dunia dimulai hanya dari **Adam ♂ & Hawa ♀**. Tidak ada pendatang. Jika semua manusia punah, Adam & Hawa baru memulai **era** berikutnya, dibiakkan dari genom paling sukses era sebelumnya; pengetahuan (teknologi, unsur) dunia tetap tersimpan.
-- **Otak**: jaringan saraf rekuren milik setiap makhluk — 55 indra → 24 neuron (dengan memori) → 12 keputusan: belok, gerak, makan, minum, kawin, istirahat, **kumpulkan, buat, bangun, beri, curi, serang**. Indranya: 6 "sinar" penglihatan (rintangan, makanan, air, lawan jenis, sesama jenis, sumber daya) + kondisi diri (energi, hidrasi, kesehatan, rumah, keluarga dekat, orang asing, reputasi, diserang, bawaan, …) + input acak `acak (kehendak)`.
+- **Otak**: jaringan saraf rekuren milik setiap makhluk — 71 indra → sekitar 20 neuron (dengan memori; jumlahnya berevolusi) → 15 keputusan: belok, gerak, makan, minum, kawin, istirahat, **kumpulkan, buat, bangun, beri, curi, serang, ajar, tanam, buru**. Indranya: 7 "sinar" penglihatan (rintangan, makanan, air, lawan jenis, sesama jenis, sumber daya, hewan) + kondisi diri (energi, hidrasi, kesehatan, rumah, keluarga, orang asing, reputasi, diserang, bawaan, keahlian, …) + lingkungan (musim, cahaya, bisa menanam, tanaman siap panen, ternak lapar, pemangsa dekat) + input acak `acak (kehendak)`.
 - **Kehendak sendiri**: tidak ada skrip perilaku — setiap tindakan berasal dari output otaknya; kode hanya menentukan detail (resep mana, target terdekat). Kebaikan (memberi makan yang lapar), kejahatan (mencuri, menyerang, membunuh) dan bertahan hidup semuanya pilihan otak. Anak-anak tidak bisa mencuri atau menyerang. Generasi pertama punya refleks bawaan lemah (bobot awal) yang bisa berubah lewat evolusi; mencuri dan menyerang awalnya ditekan, tapi evolusi bebas mengubahnya.
 - **Keluarga**: pasangan terbentuk saat anak pertama; anak ikut rumah ibu (atau ayah). **Kepala keluarga** = pemilik rumah (siapa pun yang membangunnya). Saat ia meninggal, rumah diwarisi pasangan → anak tertua → kosong (bisa diklaim orang lain).
 - **Evolusi**: anak mewarisi persilangan otak kedua orang tua (per neuron) + mutasi, juga sifat bawaan (ukuran, kecepatan, jarak pandang, metabolisme, umur, laju mutasi, warna keturunan).
 - **Ekonomi & teknologi**: kumpulkan bahan → buat bahan baru (arang, tali, beliung, bata, tembaga, perunggu, besi, baja, kaca, semen, beton, …) → bangun gubuk / rumah kayu / rumah bata, ladang, sumur, dan stasiun riset. Setiap stasiun membuka zaman baru: Zaman Batu → Logam (tungku) → Kimia (laboratorium) → Listrik → Spektroskopi → Radiasi → Nuklir (reaktor) → Partikel (akselerator).
 - **Belajar & budaya**: otak berubah selama hidup karena pengalaman (hadiah hanya dari tubuh: kenyang, sehat, tidak terluka). Ukuran otak adalah gen yang berevolusi dan memakan energi. Keahlian (membuat, membangun) dimiliki per orang, naik karena latihan, diajarkan ke anak dan murid, dan **bisa hilang** jika pemegang terakhir mati tanpa murid. Tulisan dan **perpustakaan** menyimpan pengetahuan melewati umur penulisnya.
+- **Ekologi (Fase 2)**: tahun monsun dengan musim hujan dan kemarau, El Niño (kemarau panjang) dan La Niña (banjir); tumbuhan liar yang tumbuh mengikuti hujan dan kesuburan tanah; ikan di sungai dan laut; rusa, babi hutan, ayam hutan, kerbau liar dan harimau yang merumput, berkembang biak, saling memangsa dan lari dari manusia. Manusia tidak bisa makan rumput: mereka memetik buah dan umbi, memancing, **berburu**, dan bisa **menanam** padi, talas, ubi, pisang, kelapa dan sagu yang liar di pulau — panen pertama menemukan **pertanian**. Ayam dan babi yang sering di dekat rumah lama-lama jinak (**peternakan**). Keluarga petani **menyimpan benih** dan baru memakannya saat paceklik. Bangunan baru: **ladang**, **saluran irigasi** (sawah), **lumbung** (pangan awet lebih lama), **kandang**, dan **sumur** (butuh pertanian). Pangan membusuk. **Hanya air tawar yang bisa diminum** (sungai sampai muaranya, danau), jadi permukiman tumbuh di tepi sungai, dan orang mengingat jalan pulang ke tempat ia biasa minum. Perempuan dewasa butuh 72% makanan dan air laki-laki (tubuh lebih kecil). **Tidak ada batas populasi keras**: pangan, air, dan ruang yang membatasi. Dasar ilmiahnya: `docs/reference-ecology.md`.
 - **118 unsur**: seluruh tabel periodik ada. Unsur ditemukan dengan mengumpulkan (C, S, Cu, Ag, Au), meneliti mineral di stasiun sesuai zamannya, atau mensintesis unsur buatan di reaktor/akselerator.
 
-Panel kanan: tab **Populasi** (statistik, grafik, peristiwa), **Peradaban** (tangga zaman, teknologi, bangunan), **Unsur** (tabel periodik). Klik makhluk atau rumah untuk melihat status, rumah & isinya, bawaan, perbuatan baik/jahat, keluarga, dan aktivitas jaringan sarafnya.
+Panel kanan: tab **Populasi** (statistik, grafik, peristiwa), **Ekologi** (musim, El Niño, satwa, ladang, pangan, hujan & kelaparan per tahun), **Peradaban** (tangga zaman, teknologi, bangunan), **Unsur** (tabel periodik). Klik makhluk atau rumah untuk melihat status, rumah & isinya, bawaan, perbuatan baik/jahat, keluarga, dan aktivitas jaringan sarafnya.
 
 ## Geologi realistis
 
@@ -71,6 +72,9 @@ cd backend
 go run ./cmd/soak -seeds 1-8 -minutes 120              # baseline
 go run ./cmd/soak -seeds 1-48 -minutes 20 -off crime   # A/B: dunia tanpa kejahatan
 go run ./cmd/soak -seeds 1-16 -off learning           # A/B: tanpa belajar & budaya (model lama)
+go run ./cmd/soak -seeds 1-16 -off farming            # A/B: tanpa pertanian (juga: climate, fauna)
+go run ./cmd/soak -seeds 1-8 -minutes 240 -off humans # satwa saja, tanpa Adam & Hawa
+go run ./cmd/soak -seeds 1 -cpuprofile cpu.prof        # profil CPU (go tool pprof)
 ```
 
 Rencana pengembangan lengkap: `PLAN.md`.
@@ -117,7 +121,9 @@ Definisi tile (ID, key, nama, warna, `solid`) ada di `backend/internal/world/til
 | GET | `/api/maps/{id}/geology` | Peta geologi: batuan per tile, fitur, model endapan, endapan |
 | GET | `/api/maps/{id}/sim/knowledge` | 118 unsur, teknologi, jenis bangunan |
 | GET | `/api/maps/{id}/sim/demography` | Demografi: tabel hidup, kesuburan, Gini, piramida, acuan pra-modern |
-| GET | `/api/maps/{id}/sim/stream` | Server-Sent Events: `frame` (semua makhluk 10×/detik) dan `structures` (bangunan) |
+| GET | `/api/maps/{id}/sim/ecology` | Ekologi: musim, ENSO, hujan, satwa, ladang, stok pangan, riwayat dan catatan per tahun |
+| GET | `/api/maps/{id}/sim/mined` | Bekas tambang dan pohon yang ditebang (tunggul) |
+| GET | `/api/maps/{id}/sim/stream` | Server-Sent Events: `frame` (makhluk, hewan, cuaca; 10×/detik), `structures` (bangunan) dan `fields` (ladang; paling sering sekali sedetik) |
 
 ## Cara kerja singkat
 

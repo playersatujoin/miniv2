@@ -16,7 +16,9 @@ var recipes = []Recipe{
 	{ID: "bata", Name: "Membakar bata", Inputs: in{"tanah_liat": 2, "arang": 1}, Outputs: in{"bata": 2}, Tech: "api", Teaches: "tembikar", Seconds: 4},
 	{ID: "garam", Name: "Menguapkan air laut", Inputs: in{"air_laut": 3, "arang": 1}, Outputs: in{"garam": 1}, Tech: "api", Seconds: 4},
 	{ID: "masak_rumput_laut", Name: "Memasak rumput laut", Inputs: in{"rumput_laut": 3, "arang": 1}, Outputs: in{Food: 2}, Tech: "api", Seconds: 3},
-	{ID: "makanan_asin", Name: "Mengasinkan makanan", Inputs: in{Food: 3, "garam": 1}, Outputs: in{Food: 4}, Tech: "api", Seconds: 3},
+	// Smoke and salt keep meat and fish for years instead of days.
+	{ID: "asap_daging", Name: "Mengasap daging", Inputs: in{"daging": 3, "kayu": 1}, Outputs: in{"daging_asap": 3}, Tech: "api", Teaches: "pengawetan", Seconds: 3},
+	{ID: "asin_ikan", Name: "Mengasinkan ikan", Inputs: in{"ikan": 3, "garam": 1}, Outputs: in{"ikan_asin": 3}, Tech: "api", Teaches: "pengawetan", Seconds: 3},
 	{ID: "garam_batu", Name: "Menggerus garam batu", Inputs: in{"halit": 2}, Outputs: in{"garam": 2}, Seconds: 2},
 	// Native copper was hammered and annealed long before ores were smelted.
 	{ID: "tempa_tembaga_alam", Name: "Menempa tembaga alam", Inputs: in{"tembaga_alam": 2, "arang": 1}, Outputs: in{"tembaga": 1}, Tech: "api", Discovers: el("Cu"), Seconds: 4},

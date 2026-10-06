@@ -57,11 +57,13 @@ func (g *fakeGeo) Take(x, y int, item chem.ItemID, amount float64) float64 {
 	return 0
 }
 
-func (g *fakeGeo) Regrow(float64)             {}
-func (g *fakeGeo) Update(*world.Map)          {}
-func (g *fakeGeo) Amounts() []float32         { return nil }
-func (g *fakeGeo) SetAmounts([]float32) error { return nil }
-func (g *fakeGeo) MinedOut() [][2]int         { return nil }
+func (g *fakeGeo) Regrow(float64)                 {}
+func (g *fakeGeo) Update(*world.Map)              {}
+func (g *fakeGeo) Amounts() []float32             { return nil }
+func (g *fakeGeo) SetAmounts([]float32) error     { return nil }
+func (g *fakeGeo) MinedOut() [][2]int             { return nil }
+func (g *fakeGeo) Woodland() ([]float32, float64) { return nil, 0 }
+func (g *fakeGeo) Logged() [][2]int               { return nil }
 
 func fakeCatalog() *catalog {
 	type in = map[chem.ItemID]int
@@ -160,10 +162,10 @@ func lastEvent(s *Sim) string {
 // --- brain ------------------------------------------------------------------
 
 func TestBrainShapes(t *testing.T) {
-	if len(InputLabels) != NumInputs || NumInputs != 60 {
+	if len(InputLabels) != NumInputs || NumInputs != 71 {
 		t.Fatalf("got %d input labels, NumInputs=%d", len(InputLabels), NumInputs)
 	}
-	if len(OutputLabels) != NumOutputs || NumOutputs != 13 {
+	if len(OutputLabels) != NumOutputs || NumOutputs != 15 {
 		t.Fatalf("got %d output labels", len(OutputLabels))
 	}
 	checks := map[int]string{
@@ -171,13 +173,16 @@ func TestBrainShapes(t *testing.T) {
 		inEnergy: "energi", inHealth: "kesehatan", inCanBuild: "bisa membangun", inOtherHouseNear: "rumah orang lain dekat",
 		inTeacherNear: "guru dekat", inStudentNear: "murid dekat", inBestSkill: "keahlian tertinggi",
 		inReward: "imbalan terakhir", inLibraryNear: "perpustakaan dekat", inClock: "jam internal",
+		inAnimal: "hewan -60°", inSeason: "musim", inLight: "cahaya", inCanPlant: "bisa menanam",
+		inCropReady: "tanaman siap panen", inLivestockHungry: "ternak lapar", inPredatorNear: "pemangsa dekat",
 	}
 	for i, want := range checks {
 		if InputLabels[i] != want {
 			t.Errorf("input %d = %q, want %q", i, InputLabels[i], want)
 		}
 	}
-	if OutputLabels[outGather] != "kumpulkan" || OutputLabels[outAttack] != "serang" || OutputLabels[outTeach] != "ajar" {
+	if OutputLabels[outGather] != "kumpulkan" || OutputLabels[outAttack] != "serang" || OutputLabels[outTeach] != "ajar" ||
+		OutputLabels[outPlant] != "tanam" || OutputLabels[outHunt] != "buru" {
 		t.Fatalf("outputs out of order: %v", OutputLabels)
 	}
 }
@@ -674,7 +679,11 @@ func TestPersistRoundTrip(t *testing.T) {
 	a.houseOf(c).Storage.add("batu", 2)
 	a.discover(c, "Au", "Bijih Emas")
 	c.Skills = map[string]float64{"api": 0.7, "tulisan": 0.4}
-	lib := a.addStructure(a.cat.structure["perpustakaan"], int(c.X)+2, int(c.Y), c)
+	lx, ly, ok := a.spotNear(int(c.X), int(c.Y), 4)
+	if !ok {
+		t.Fatal("no room for a library")
+	}
+	lib := a.addStructure(a.cat.structure["perpustakaan"], lx, ly, c)
 	lib.Written = map[string]float64{"api": 0.5}
 	a.lost["kaca"] = true
 	a.knowledgeLost = 1
@@ -695,7 +704,7 @@ func TestPersistRoundTrip(t *testing.T) {
 			b.tick, len(b.creatures), b.nextID, a.tick, len(a.creatures), a.nextID)
 	}
 	bc := b.byID[c.ID]
-	if bc.Inventory["kayu"] != 3 || b.houseOf(bc) == nil || b.houseOf(bc).Storage["batu"] != 2 || !b.known("Au") {
+	if bc.Inventory["kayu"] != c.Inventory["kayu"] || b.houseOf(bc) == nil || b.houseOf(bc).Storage["batu"] != 2 || !b.known("Au") {
 		t.Fatal("inventory, house or discovery lost in the save")
 	}
 	if bc.Skills["api"] != 0.7 || b.structByID[lib.ID].Written["api"] != 0.5 || !b.lost["kaca"] || b.knowledgeLost != 1 {

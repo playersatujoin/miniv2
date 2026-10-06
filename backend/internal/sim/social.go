@@ -93,7 +93,20 @@ func (s *Sim) inherit(dead *Creature) {
 		}
 		s.structVersion++
 		if !st.house() {
+			// Fields, granaries, pens and stations stay in the family: the
+			// spouse, else the eldest child, takes them over.
+			heir := s.livingSpouse(dead)
+			if heir == nil {
+				for _, c := range s.creatures {
+					if c.Health > 0 && isParent(dead, c) && (heir == nil || c.BornTick < heir.BornTick) {
+						heir = c
+					}
+				}
+			}
 			st.Owner, st.OwnerName = 0, ""
+			if heir != nil {
+				st.Owner, st.OwnerName = heir.ID, heir.Name
+			}
 			continue
 		}
 		var heir *Creature
@@ -168,7 +181,7 @@ func (s *Sim) crimeEvent(text string, id int64, violent bool) {
 // give hands one unit of food to the hungriest creature in reach, family
 // first. Kindness here is feeding someone who needs it.
 func (s *Sim) give(c *Creature) bool {
-	item := s.cat.edible(c.Inventory)
+	item := s.cat.edible(c.Inventory, s.handKeep(c))
 	if item == "" {
 		return false
 	}
@@ -186,7 +199,8 @@ func (s *Sim) give(c *Creature) bool {
 		}
 	})
 	if target == nil {
-		return false
+		// Nobody to share with: feed an animal instead.
+		return s.feedAnimal(c, item)
 	}
 	target.Inventory.add(item, c.Inventory.take(item, 1))
 	c.Deeds.Kindness++
@@ -228,11 +242,14 @@ func (s *Sim) steal(c *Creature) bool {
 		text = "dari " + victim.Name
 	default:
 		for _, st := range s.structures {
-			if st.house() && st.Owner != 0 && len(st.Storage) > 0 && st.dist(c.X, c.Y) <= houseStealRange && !s.kinHouse(c, st) {
+			if (st.house() || st.kind.Granary) && st.Owner != 0 && len(st.Storage) > 0 && st.dist(c.X, c.Y) <= houseStealRange && !s.kinHouse(c, st) {
 				from = st.Storage
-				text = "dari rumah keluarga " + st.OwnerName
+				text = "dari " + lowerName(st.kind.Name) + " keluarga " + st.OwnerName
 				break
 			}
+		}
+		if from == nil {
+			from, text = s.stealHarvest(c, room)
 		}
 	}
 	if from == nil {

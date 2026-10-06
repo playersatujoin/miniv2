@@ -28,7 +28,15 @@ export function PopulationStats({ info }: { info: SimInfo }) {
   return (
     <div className="obs-stats">
       <div className="obs-stat-grid">
-        <Stat label="Populasi" value={`${n(info.population)} / ${n(info.capacity)}`} />
+        <Stat
+          label="Populasi"
+          value={n(info.population)}
+          title={
+            info.capacity
+              ? `Dibatasi oleh pangan, bukan oleh kapasitas. Batas teknis simulasi: ${n(info.capacity)} orang.`
+              : undefined
+          }
+        />
         <Stat label="♀ Perempuan" value={n(info.females)} mark={SEX_COLOR.female} />
         <Stat label="♂ Laki-laki" value={n(info.males)} mark={SEX_COLOR.male} />
         <Stat label="Generasi maks" value={n(info.maxGeneration)} />
@@ -42,7 +50,15 @@ export function PopulationStats({ info }: { info: SimInfo }) {
         {info.knowledgeLost != null && (
           <Stat label="📉 Ilmu hilang" value={n(info.knowledgeLost)} title="Berapa kali sebuah keahlian mati bersama pemegang terakhirnya" />
         )}
+        {info.animals != null && <Stat label="🐾 Hewan liar" value={n(info.animals)} title="Hewan liar yang hidup di pulau" />}
+        {info.livestock != null && <Stat label="🐔 Ternak" value={n(info.livestock)} title="Ayam, babi dan kerbau yang dipelihara keluarga" />}
+        {info.plots != null && <Stat label="🌾 Petak ladang" value={n(info.plots)} title="Petak yang sedang ditanami" />}
       </div>
+      {info.capacityHits > 0 && (
+        <p className="small muted obs-rate-note">
+          Batas teknis {n(info.capacity)} orang sudah {n(info.capacityHits)} kali menahan kehamilan.
+        </p>
+      )}
       {info.crimesPerYear != null && <p className="small muted obs-rate-note">Laju "/thn" = rata-rata per tahun selama 50 tahun terakhir.</p>}
       <p className="obs-vitals small">
         <span>

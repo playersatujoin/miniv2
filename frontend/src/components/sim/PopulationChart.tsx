@@ -34,7 +34,8 @@ const METRICS: Record<Metric, MetricConfig> = {
     // Draw the total last so it sits on top.
     drawOrder: ['females', 'males', 'population'],
     headline: 'population',
-    floor: 0, // the capacity line sets it
+    // Food limits the population now, so the axis follows the data, not the technical ceiling.
+    floor: 10,
     fmt: whole,
   },
   elements: {
@@ -93,9 +94,9 @@ function niceCeil(v: number) {
 
 const val = (h: SimHistoryPoint, key: NumKey) => (h[key] as number | undefined) ?? 0
 
-type Props = { history: SimHistoryPoint[]; capacity: number }
+type Props = { history: SimHistoryPoint[] }
 
-export function PopulationChart({ history, capacity }: Props) {
+export function PopulationChart({ history }: Props) {
   const [wrapRef, width] = useElementWidth<HTMLDivElement>()
   const [active, setActive] = useState<number | null>(null)
   const [showTable, setShowTable] = useState(false)
@@ -115,8 +116,7 @@ export function PopulationChart({ history, capacity }: Props) {
     const t0 = history[0].time
     const t1 = history[history.length - 1].time
     const peak = Math.max(...history.map((h) => val(h, cfg.headline)))
-    const floor = cfg.headline === 'population' ? capacity : cfg.floor
-    const yMax = niceCeil(Math.max(floor, peak))
+    const yMax = niceCeil(Math.max(cfg.floor, peak))
     const plotW = width - M.left - M.right
     const plotH = HEIGHT - M.top - M.bottom
     const x = (t: number) => M.left + ((t - t0) / Math.max(1e-9, t1 - t0)) * plotW
@@ -126,7 +126,7 @@ export function PopulationChart({ history, capacity }: Props) {
       paths[s.key] = history.map((h, i) => `${i ? 'L' : 'M'}${x(h.time).toFixed(1)},${y(val(h, s.key)).toFixed(1)}`).join('')
     }
     return { t0, t1, yMax, plotW, plotH, x, y, paths }
-  }, [ready, history, capacity, width, cfg])
+  }, [ready, history, width, cfg])
 
   const nearest = (px: number) => {
     if (!geo) return null
@@ -234,24 +234,6 @@ export function PopulationChart({ history, capacity }: Props) {
                     </text>
                   </g>
                 ))}
-
-                {cfg.headline === 'population' && capacity > 0 && capacity <= geo.yMax && (
-                  <g>
-                    <line
-                      x1={M.left}
-                      x2={M.left + geo.plotW}
-                      y1={geo.y(capacity)}
-                      y2={geo.y(capacity)}
-                      stroke={MUTED}
-                      strokeOpacity={0.45}
-                      strokeWidth={1}
-                      shapeRendering="crispEdges"
-                    />
-                    <text x={M.left + 3} y={geo.y(capacity) - 4} className="obs-axis-text">
-                      kapasitas {capacity}
-                    </text>
-                  </g>
-                )}
 
                 <text x={M.left} y={HEIGHT - 6} className="obs-axis-text">
                   {formatClockShort(geo.t0, spy)}

@@ -4,6 +4,7 @@ import (
 	"io"
 	"net/http"
 	"strconv"
+	"time"
 
 	"miniv2/backend/internal/sim"
 )
@@ -62,14 +63,24 @@ func (s *Server) simDemography(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, sm.Demography())
 }
 
-// simMined lists dug-out mineral deposits (old pits) of a living world.
+// simMined lists dug-out mineral deposits (old pits) and felled trees
+// (stumps) of a living world.
 func (s *Server) simMined(w http.ResponseWriter, r *http.Request) {
 	sm, ok := s.simFor(w, r)
 	if !ok {
 		return
 	}
-	version, tiles := sm.MinedOut()
-	writeJSON(w, http.StatusOK, map[string]any{"version": version, "tiles": tiles})
+	version, tiles, logged := sm.MinedOut()
+	writeJSON(w, http.StatusOK, map[string]any{"version": version, "tiles": tiles, "logged": logged})
+}
+
+// simEcology reports the land: seasons and weather, animals, fields and food.
+func (s *Server) simEcology(w http.ResponseWriter, r *http.Request) {
+	sm, ok := s.simFor(w, r)
+	if !ok {
+		return
+	}
+	writeJSON(w, http.StatusOK, sm.Ecology())
 }
 
 func (s *Server) simCreature(w http.ResponseWriter, r *http.Request) {
@@ -91,8 +102,9 @@ func (s *Server) simCreature(w http.ResponseWriter, r *http.Request) {
 }
 
 // simStream pushes every published world frame as a Server-Sent Event, plus
-// the buildings on connect and whenever they change, until the client goes
-// away or the server shuts down.
+// the buildings and the planted fields on connect and whenever they change
+// (fields at most once a second), until the client goes away or the server
+// shuts down.
 func (s *Server) simStream(w http.ResponseWriter, r *http.Request) {
 	sm, ok := s.simFor(w, r)
 	if !ok {
@@ -109,12 +121,21 @@ func (s *Server) simStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sent := int64(-1)
+	sent, fieldsSent := int64(-1), int64(-1)
+	var fieldsAt time.Time
 	for {
 		if v := sm.StructureVersion(); v != sent {
 			var data []byte
 			data, sent = sm.Structures()
 			io.WriteString(w, "event: structures\ndata: ")
+			w.Write(data)
+			io.WriteString(w, "\n\n")
+		}
+		if v := sm.FieldsVersion(); v != fieldsSent && time.Since(fieldsAt) >= time.Second {
+			var data []byte
+			data, fieldsSent = sm.Fields()
+			fieldsAt = time.Now()
+			io.WriteString(w, "event: fields\ndata: ")
 			w.Write(data)
 			io.WriteString(w, "\n\n")
 		}

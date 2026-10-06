@@ -6,6 +6,7 @@ import (
 	"strconv"
 
 	"miniv2/backend/internal/chem"
+	"miniv2/backend/internal/ecology"
 )
 
 // Flags in stream frames; keep in sync with FLAG in frontend/src/sim/protocol.ts.
@@ -25,10 +26,13 @@ const (
 	flagHead      = 4096
 	flagCarrying  = 8192
 	flagTeaching  = 16384
+	flagPlanting  = 32768
+	flagHunting   = 65536
 )
 
 var fxFlags = [numFX]int{fxAttack: flagAttacking, fxSteal: flagStealing, fxGive: flagGiving,
-	fxBuild: flagBuilding, fxCraft: flagCrafting, fxGather: flagGathering, fxTeach: flagTeaching}
+	fxBuild: flagBuilding, fxCraft: flagCrafting, fxGather: flagGathering, fxTeach: flagTeaching,
+	fxPlant: flagPlanting, fxHunt: flagHunting}
 
 type Info struct {
 	MapID              string         `json:"mapId"`
@@ -43,7 +47,8 @@ type Info struct {
 	Population         int            `json:"population"`
 	Females            int            `json:"females"`
 	Males              int            `json:"males"`
-	Capacity           int            `json:"capacity"`
+	Capacity           int            `json:"capacity"`     // technical ceiling only, not a carrying capacity
+	CapacityHits       int            `json:"capacityHits"` // conceptions the ceiling stopped (0 in a normal world)
 	Births             int            `json:"births"`
 	Deaths             int            `json:"deaths"`
 	DeathsByCause      deathCounts    `json:"deathsByCause"`
@@ -61,6 +66,11 @@ type Info struct {
 	KillsPerYear       float64        `json:"killsPerYear"`
 	AvgBrainSize       float64        `json:"avgBrainSize"`
 	KnowledgeLost      int            `json:"knowledgeLost"`
+	Season             string         `json:"season"` // hujan | kemarau
+	ENSO               string         `json:"enso"`   // netral | el_nino | la_nina
+	Animals            int            `json:"animals"`
+	Livestock          int            `json:"livestock"`
+	Plots              int            `json:"plots"`
 	History            []HistoryPoint `json:"history"`
 	Events             []Event        `json:"events"`
 }
@@ -70,6 +80,7 @@ func (s *Sim) Info() Info {
 	defer s.mu.Unlock()
 	f, m, maxGen, avgGen := s.census()
 	crimes, kindness, kills := s.stats.deedRates()
+	wild, tame := s.eco.Counts()
 	return Info{
 		MapID:              s.mapID,
 		Tick:               s.tick,
@@ -101,6 +112,12 @@ func (s *Sim) Info() Info {
 		KillsPerYear:       kills,
 		AvgBrainSize:       math.Round(s.avgBrainSize()*10) / 10,
 		KnowledgeLost:      s.knowledgeLost,
+		CapacityHits:       s.capHits,
+		Season:             seasonName(s.eco),
+		ENSO:               ecology.ENSOName(s.eco.Climate().ENSO),
+		Animals:            sumInts(wild),
+		Livestock:          sumInts(tame),
+		Plots:              len(s.eco.Plots()),
 		History:            append([]HistoryPoint{}, s.history...), // never null in JSON
 		Events:             append([]Event{}, s.events...),
 	}
@@ -147,6 +164,9 @@ type HouseView struct {
 	Members  int         `json:"members"`
 	Storage  []StackView `json:"storage"`
 	Capacity int         `json:"capacity"`
+	// The family's granary stock and livestock (Fase 2).
+	Granary   []StackView `json:"granary"`
+	Livestock []StackView `json:"livestock"`
 }
 
 type CreatureDetail struct {
@@ -224,17 +244,26 @@ func (s *Sim) houseView(st *Structure) *HouseView {
 		head = &Ref{st.Owner, st.OwnerName}
 	}
 	return &HouseView{
-		ID:       st.ID,
-		Kind:     st.Kind,
-		Name:     st.kind.Name,
-		Level:    st.kind.Level,
-		X:        st.X,
-		Y:        st.Y,
-		Head:     head,
-		Members:  members,
-		Storage:  s.stacks(st.Storage),
-		Capacity: st.kind.Storage,
+		ID:        st.ID,
+		Kind:      st.Kind,
+		Name:      st.kind.Name,
+		Level:     st.kind.Level,
+		X:         st.X,
+		Y:         st.Y,
+		Head:      head,
+		Members:   members,
+		Storage:   s.stacks(st.Storage),
+		Capacity:  st.kind.Storage,
+		Granary:   s.granaryStacks(st),
+		Livestock: s.livestockView(st.ID),
 	}
+}
+
+func (s *Sim) granaryStacks(h *Structure) []StackView {
+	if g := s.granaryOf(h); g != nil {
+		return s.stacks(g.Storage)
+	}
+	return []StackView{}
 }
 
 // Creature returns a live snapshot of one creature, or false if it is dead
@@ -470,11 +499,13 @@ func (s *Sim) flags(c *Creature) int {
 // encodeFrame writes the compact stream frame by hand: it runs 10 times a
 // second for every world, so it avoids reflection.
 func (s *Sim) encodeFrame() []byte {
-	b := make([]byte, 0, 64+len(s.creatures)*84)
+	b := make([]byte, 0, 96+len(s.creatures)*84+len(s.eco.Animals())*40)
 	b = append(b, `{"t":`...)
 	b = strconv.AppendInt(b, s.tick, 10)
 	b = append(b, `,"s":`...)
 	b = strconv.AppendFloat(b, s.time(), 'f', 2, 64)
+	b = s.appendWeather(b)
+	b = s.appendAnimals(b)
 	b = append(b, `,"c":[`...)
 	for i, c := range s.creatures {
 		if i > 0 {
@@ -552,14 +583,18 @@ func (s *Sim) StructureVersion() int64 {
 	return s.structVersion
 }
 
-// MinedOut lists tiles whose mineral deposit has been dug out, and a version
-// that changes whenever the list does.
-func (s *Sim) MinedOut() (version int, tiles [][2]int) {
+// MinedOut lists tiles whose mineral deposit has been dug out and trees that
+// have been felled, and a version that changes whenever either list does.
+func (s *Sim) MinedOut() (version int, tiles, logged [][2]int) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	tiles = s.geo.MinedOut()
 	if tiles == nil {
 		tiles = [][2]int{}
 	}
-	return len(tiles), tiles
+	logged = s.geo.Logged()
+	if logged == nil {
+		logged = [][2]int{}
+	}
+	return len(tiles) + 100_000*len(logged), tiles, logged
 }

@@ -859,3 +859,57 @@ func valueNoise(seed uint64, x, y float64, salt int) float64 {
 	bottom := lerp(hash(seed, ix, iy+1, salt), hash(seed, ix+1, iy+1, salt), sx)
 	return lerp(top, bottom, sy)
 }
+
+// Woodland is the tree cover left around each tile, as the share of wood
+// still standing on the trees within two tiles (1 where no tree was ever
+// near), and the share of all the map's wood that has been cut.
+func (g *Geology) Woodland() ([]float32, float64) {
+	n := g.w * g.h
+	frac := make([]float32, n)
+	tree := make([]bool, n)
+	var left, total float64
+	for t := range n {
+		i := t*slotsPerTile + 1
+		if id, ok := g.itemAt(i); ok && id == "kayu" && g.caps[i] > 0 {
+			tree[t] = true
+			frac[t] = g.amounts[i] / g.caps[i]
+			left += float64(g.amounts[i])
+			total += float64(g.caps[i])
+		}
+	}
+	cover := make([]float32, n)
+	for t := range n {
+		x, y := t%g.w, t/g.w
+		var sum float32
+		k := 0
+		for dy := -2; dy <= 2; dy++ {
+			for dx := -2; dx <= 2; dx++ {
+				if g.inside(x+dx, y+dy) && tree[(y+dy)*g.w+x+dx] {
+					sum += frac[(y+dy)*g.w+x+dx]
+					k++
+				}
+			}
+		}
+		cover[t] = 1
+		if k > 0 {
+			cover[t] = sum / float32(k)
+		}
+	}
+	cut := 0.0
+	if total > 0 {
+		cut = 1 - left/total
+	}
+	return cover, cut
+}
+
+// Logged lists trees cut down to stumps: less than a tenth of their wood left.
+func (g *Geology) Logged() [][2]int {
+	var out [][2]int
+	for t := 0; t < g.w*g.h; t++ {
+		i := t*slotsPerTile + 1
+		if id, ok := g.itemAt(i); ok && id == "kayu" && g.caps[i] > 0 && g.amounts[i] < g.caps[i]*0.1 {
+			out = append(out, [2]int{t % g.w, t / g.w})
+		}
+	}
+	return out
+}

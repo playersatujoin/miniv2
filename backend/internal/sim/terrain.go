@@ -7,30 +7,19 @@ import (
 	"miniv2/backend/internal/world"
 )
 
-// Food capacity per tile and regrowth per simulated second.
-const (
-	grassFood    = 0.5
-	grassRegrow  = 0.003
-	forestFood   = 0.7
-	forestRegrow = 0.005
-	flowerFood   = 0.3
-	flowerRegrow = 0.006
-	bushFood     = 1.0
-	bushRegrow   = 0.012
-)
-
-// terrain is the simulation's view of a map: what blocks movement, where the
-// water is and how much food each tile holds.
+// terrain is the simulation's view of a map: what blocks movement and where
+// the water is. What grows on it lives in the ecology. Only fresh water
+// (rivers and lakes, see world.FreshWater) can be drunk.
 type terrain struct {
 	w, h      int
 	blocked   []bool
 	water     []bool
-	nearWater []bool
-	foodCap   []float32
-	foodRate  []float32
-	food      []float32
+	fresh     []bool // drinkable water
+	nearWater []bool // next to any water (fishing)
+	nearFresh []bool // next to fresh water (drinking)
 	walkable  []int32
 	shore     []int32 // walkable tiles next to water
+	riverbank []int32 // walkable tiles next to fresh water
 }
 
 func newTerrain(m *world.Map) *terrain {
@@ -41,9 +30,7 @@ func newTerrain(m *world.Map) *terrain {
 		blocked:   make([]bool, n),
 		water:     make([]bool, n),
 		nearWater: make([]bool, n),
-		foodCap:   make([]float32, n),
-		foodRate:  make([]float32, n),
-		food:      make([]float32, n),
+		nearFresh: make([]bool, n),
 	}
 	for i := range n {
 		g, o := m.Layers.Ground[i], m.Layers.Objects[i]
@@ -53,36 +40,24 @@ func newTerrain(m *world.Map) *terrain {
 			continue
 		}
 		t.walkable = append(t.walkable, int32(i))
-
-		var cap, rate float64
-		switch g {
-		case world.Grass:
-			cap, rate = grassFood, grassRegrow
-		case world.ForestFloor:
-			cap, rate = forestFood, forestRegrow
-		}
-		switch o {
-		case world.Bush:
-			cap, rate = bushFood, bushRegrow
-		case world.Flowers:
-			cap, rate = cap+flowerFood, rate+flowerRegrow
-		}
-		t.foodCap[i], t.foodRate[i] = float32(cap), float32(rate)
 	}
-	copy(t.food, t.foodCap)
 
+	t.fresh = world.FreshWater(m)
 	for _, i := range t.walkable {
 		x, y := int(i)%t.w, int(i)/t.w
-		for dy := -1; dy <= 1 && !t.nearWater[i]; dy++ {
+		for dy := -1; dy <= 1; dy++ {
 			for dx := -1; dx <= 1; dx++ {
 				if j, ok := t.index(x+dx, y+dy); ok && t.water[j] {
 					t.nearWater[i] = true
-					break
+					t.nearFresh[i] = t.nearFresh[i] || t.fresh[j]
 				}
 			}
 		}
 		if t.nearWater[i] {
 			t.shore = append(t.shore, i)
+		}
+		if t.nearFresh[i] {
+			t.riverbank = append(t.riverbank, i)
 		}
 	}
 	return t
@@ -104,17 +79,13 @@ func (t *terrain) blockedAt(x, y float64) bool {
 	return !ok || t.blocked[i]
 }
 
-func (t *terrain) regrow(seconds float64) {
-	for i, f := range t.food {
-		if c := t.foodCap[i]; f < c {
-			t.food[i] = min(c, f+t.foodRate[i]*float32(seconds))
-		}
-	}
-}
-
-// randomSpot returns a point on a random walkable tile, preferring the shore.
+// randomSpot returns a point on a random walkable tile, preferring the banks
+// of rivers and lakes, then the shore.
 func (t *terrain) randomSpot(rng *rand.Rand) (x, y float64, ok bool) {
-	pool := t.shore
+	pool := t.riverbank
+	if len(pool) == 0 {
+		pool = t.shore
+	}
 	if len(pool) == 0 {
 		pool = t.walkable
 	}

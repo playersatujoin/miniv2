@@ -116,8 +116,8 @@ export function Demography({ mapId }: { mapId: string }) {
         <span className="small muted">{nf.format(m?.windowYears ?? 50)} tahun terakhir</span>
       </div>
       <p className="dm-caveat small muted">
-        Dibandingkan dengan masyarakat pra-modern. Penyakit, menyusui, dan menopause belum dimodelkan, jadi selisih
-        dengan acuan adalah temuan, bukan galat.
+        Dibandingkan dengan masyarakat pra-modern. Penyakit dan menopause belum dimodelkan (menyusui baru versi
+        sederhana), jadi selisih dengan acuan adalah temuan, bukan galat.
         {m && m.personYears > 0 && <> Dasar hitungan: {nf.format(Math.round(m.personYears))} tahun-orang.</>}
       </p>
 

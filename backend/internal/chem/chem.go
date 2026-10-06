@@ -59,6 +59,9 @@ type Item struct {
 	Value    float64  `json:"value"`             // worth; thieves prefer valuable items
 	Damage   float64  `json:"damage,omitempty"`  // attack bonus while carried (weapons)
 	Gather   float64  `json:"gather,omitempty"`  // gathering speed multiplier while carried (tools), 0 = none
+	// Keeps is how long food stays good: the half-life in simulated years of
+	// a unit kept in the open (0 = never spoils). Storage slows it down.
+	Keeps float64 `json:"keeps,omitempty"`
 }
 
 // Source is something gatherable from the tile (X, Y), seen from a creature's tile.
@@ -92,6 +95,10 @@ type StructureKind struct {
 	Farm     bool           `json:"farm,omitempty"`     // produces food over time
 	Well     bool           `json:"well,omitempty"`     // creatures nearby can drink
 	Library  bool           `json:"library,omitempty"`  // stores written know-how that outlives its writers
+	// Farming and herding (Fase 2).
+	Irrigation bool `json:"irrigation,omitempty"` // waters the fields around it from a nearby river or lake
+	Granary    bool `json:"granary,omitempty"`    // a family's food store where food keeps much longer
+	Pen        bool `json:"pen,omitempty"`        // keeps a family's livestock safe and manures the fields nearby
 }
 
 type Recipe struct {

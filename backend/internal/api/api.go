@@ -46,6 +46,7 @@ func New(st *store.FileStore, sims *sim.Manager) http.Handler {
 	mux.HandleFunc("GET /api/maps/{id}/sim/knowledge", s.simKnowledge)
 	mux.HandleFunc("GET /api/maps/{id}/sim/demography", s.simDemography)
 	mux.HandleFunc("GET /api/maps/{id}/sim/mined", s.simMined)
+	mux.HandleFunc("GET /api/maps/{id}/sim/ecology", s.simEcology)
 	mux.HandleFunc("GET /api/maps/{id}/sim/stream", s.simStream)
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "not found")

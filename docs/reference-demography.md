@@ -11,7 +11,7 @@ Skala waktu simulasi: **1 tahun = 8 detik simulasi**.
 | Sisa harapan hidup pada umur 15 (e15) | **sekitar 28–43 tahun lagi** | Gurven & Kaplan (2007), Tabel 3 (kolom e15) | Kelompok yang berakulturasi bisa sampai sekitar 52 tahun |
 | Usia kematian dewasa yang paling umum (modus) | **68–78 tahun** | Gurven & Kaplan (2007), Tabel 4 | Kesimpulan penulis: tubuh manusia "dirancang" berfungsi baik sekitar tujuh dekade |
 | Angka kelahiran total (TFR) | **sekitar 5–7 anak per perempuan** (rata-rata 6,2) | Kompilasi 5 populasi (Ache, Agta, Hadza, Hiwi, !Kung); lihat arXiv:2601.13442 | Kompilasi sekunder. Rata-rata etnografis lebih luas sekitar 5,4 (rentang 0,8–8,5); perlu dicek ke sumber primer |
-| Jarak antar-kelahiran | **2,8–3,3 tahun** (rata-rata 3,1) | Kompilasi yang sama | Panjang karena menyusui (belum dimodelkan sampai Fase 3) |
+| Jarak antar-kelahiran | **2,8–3,3 tahun** (rata-rata 3,1) | Kompilasi yang sama | Panjang karena menyusui. Sejak Fase 2, bayi di bawah 2 tahun digendong dan disusui ibunya (`docs/reference-ecology.md`); masa tidak subur 2 tahun setelah melahirkan tetap dipakai sebagai efek menyusui pada ovulasi |
 | Umur ibu saat anak pertama | **sekitar 18–20 tahun** | Kompilasi yang sama; Baka: rata-rata 18 tahun (Ramirez Rozzi 2018) | — |
 | Ketimpangan kekayaan (Gini) | **0,25 ± 0,04** (pemburu-peramu); 0,27 (peladang); 0,42 (penggembala); 0,48 (petani) | Borgerhoff Mulder dkk. (2009), Tabel 2, rata-rata semua jenis kekayaan berbobot | Di simulasi hanya kekayaan material (bawaan + simpanan rumah) yang dihitung, jadi angkanya lebih bisa dibandingkan dengan kolom "material" |
 | Penyebab kematian | **Penyakit > 50% kematian** di hampir semua kelompok; kekerasan sangat bervariasi | Gurven & Kaplan (2007), Tabel 5 | Simulasi belum punya penyakit (Fase 3), jadi distribusinya pasti berbeda. Itu temuan, bukan galat |
@@ -27,7 +27,7 @@ Skala waktu simulasi: **1 tahun = 8 detik simulasi**.
 
 ## Batasan pembanding
 
-- Masyarakat nyata punya penyakit, menyusui, menopause, dan budaya. Simulasi belum (Fase 1–4). Selisih dengan acuan menunjukkan apa yang belum dimodelkan.
+- Masyarakat nyata punya penyakit, menyusui, menopause, dan budaya. Simulasi baru sebagian (budaya di Fase 1, menyusui sederhana di Fase 2; penyakit dan menopause di Fase 3). Selisih dengan acuan menunjukkan apa yang belum dimodelkan.
 - Populasi simulasi kecil (sekitar 150 orang), jadi angkanya berfluktuasi. Bandingkan median beberapa seed dari runner soak, bukan satu dunia.
 
 ## Sumber

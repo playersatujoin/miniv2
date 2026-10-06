@@ -9,10 +9,22 @@ import type {
   TileDef,
   TileSet,
 } from '../api/client'
-import { FLAG, SEX_SYMBOL, type MinedOut, type Sex, type SimFrame, type StructureFrame } from '../sim/protocol'
+import {
+  ANIMAL_FLAG,
+  FLAG,
+  SEX_SYMBOL,
+  type FieldPlot,
+  type MinedOut,
+  type Sex,
+  type SimFrame,
+  type StructureFrame,
+} from '../sim/protocol'
+import { ANIMAL_HEIGHT, animalLabel, animalScale, drawAnimal } from './fauna'
+import { drawPlotFlat, drawPlotUpright, plotIsUpright } from './fields'
 import {
   FEATURE_ICONS,
   FLAT_OBJECTS,
+  COMMUNAL_STRUCTURES,
   FLAT_STRUCTURES,
   ROCKY_GROUND,
   SPRITE_SIZE,
@@ -27,11 +39,13 @@ import {
   drawFallbackObject,
   drawFarm,
   drawDeposit,
+  drawIrrigation,
   drawPit,
   drawFlat,
   drawGround,
   drawPlayer,
   drawSpawnFlag,
+  drawStump,
   hash,
   isWater,
   structureLabel,
@@ -41,6 +55,7 @@ import {
   type KeyAt,
   type SpriteSheet,
 } from './render'
+import { WeatherFx } from './weather'
 
 export type Mode = 'play' | 'edit' | 'watch'
 export type Layer = 'ground' | 'objects'
@@ -59,6 +74,10 @@ export type HoverInfo = {
   rock?: RockType
   /** The ground deposit here has been mined out (an old pit). */
   minedOut?: boolean
+  /** The tree here was felled to a stump (watch mode). */
+  stump?: boolean
+  /** A planted crop on this tile (watch mode). */
+  plot?: FieldPlot
 }
 
 export type EngineEvents = {
@@ -84,17 +103,8 @@ type View = { w: number; h: number; scale: number; left: number; top: number }
 type Change = { i: number; layer: Layer; before: number; after: number }
 type Stroke = { changes: Change[]; spawn?: { before: Point; after: Point } }
 
-/** A streamed creature, interpolated from (px, py, ph) to (x, y, heading) between frames. */
-type Creature = {
-  id: number
-  name: string
-  sex: Sex
-  hue: number
-  size: number
-  flags: number
-  energy: number
-  health: number
-  houseId: number
+/** Something streamed that moves: interpolated from (px, py, ph) to (x, y, heading) between frames. */
+type Glide = {
   px: number
   py: number
   ph: number
@@ -108,6 +118,71 @@ type Creature = {
   step: number
   moving: boolean
 }
+
+/** A streamed creature. */
+type Creature = Glide & {
+  id: number
+  name: string
+  sex: Sex
+  hue: number
+  size: number
+  flags: number
+  energy: number
+  health: number
+  houseId: number
+}
+
+/** A streamed wild or domestic animal. */
+type Animal = Glide & { id: number; species: number; flags: number }
+
+/** A glide standing still at (x, y). */
+const still = (x: number, y: number, heading: number): Glide => ({
+  px: x,
+  py: y,
+  ph: heading,
+  x,
+  y,
+  heading,
+  rx: x,
+  ry: y,
+  rh: heading,
+  step: 0,
+  moving: false,
+})
+
+/** Points a glide at its next position, starting from where it is drawn right now. */
+function retarget(g: Glide, x: number, y: number, heading: number) {
+  g.px = g.rx
+  g.py = g.ry
+  g.ph = g.rh
+  g.x = x
+  g.y = y
+  g.heading = heading
+  if (Math.hypot(g.x - g.px, g.y - g.py) > SNAP_DISTANCE) {
+    g.px = g.rx = g.x
+    g.py = g.ry = g.y
+  }
+}
+
+/** Moves a glide fraction t of the way along its segment; `stride` is leg cycles per tile walked. */
+function glide(g: Glide, t: number, dt: number, stride: number) {
+  const rx = g.px + (g.x - g.px) * t
+  const ry = g.py + (g.y - g.py) * t
+  // Turn the short way round.
+  let dh = (g.heading - g.ph) % (Math.PI * 2)
+  if (dh > Math.PI) dh -= Math.PI * 2
+  else if (dh < -Math.PI) dh += Math.PI * 2
+  g.rh = g.ph + dh * t
+
+  const moved = Math.hypot(rx - g.rx, ry - g.ry)
+  g.moving = dt > 0 && moved / dt > 0.15
+  g.step += moved * stride
+  g.rx = rx
+  g.ry = ry
+}
+
+/** Leg cycles per tile walked, by species: chickens patter, buffalo stride. */
+const ANIMAL_STRIDE = [1.1, 1.5, 3.2, 0.9, 0.9]
 
 const CHUNK = 16 // tiles per side of a cached ground chunk
 const MAX_CHUNKS = 96
@@ -124,6 +199,14 @@ const MAX_UNDO = 200
 const BULK_REDRAW = 64 // above this many changed tiles, drop the cache instead of patching it
 const SNAP_DISTANCE = 10 // tiles; creatures that jump further between frames are teleported, not slid
 const DRAG_THRESHOLD = 4 // px before a watch-mode click becomes a pan
+
+/** N, E, S, W. */
+const SIDES = [
+  [0, -1],
+  [1, 0],
+  [0, 1],
+  [-1, 0],
+] as const
 
 const KEYS = {
   up: ['KeyW', 'ArrowUp'],
@@ -197,6 +280,16 @@ export class GameEngine {
   private lastDirty = false
 
   private creatures = new Map<number, Creature>()
+  private animals = new Map<number, Animal>()
+  private hoverAnimal: Animal | null = null
+  /** Planted plots by tile index. */
+  private plots = new Map<number, FieldPlot>()
+  /** Grown banana, coconut and sago palms by tile row, for depth sorting. */
+  private plotRows = new Map<number, FieldPlot[]>()
+  private fieldsVersion = 0
+  /** Tile indices of trees felled to stumps (watch mode). */
+  private logged = new Set<number>()
+  private readonly weather = new WeatherFx()
   /** Upright structures by tile row, for depth sorting; flat ones (farms) apart. */
   private structureRows = new Map<number, StructureFrame[]>()
   private flatStructures: StructureFrame[] = []
@@ -296,23 +389,38 @@ export class GameEngine {
   }
 
   /**
-   * Marks mined-out ground deposits as old pits. Only the tiles that changed are
-   * repainted in cached chunks; null clears them (e.g. outside watch mode).
+   * Marks mined-out ground deposits as old pits and felled trees as stumps.
+   * Only the tiles that changed are repainted in cached chunks; null clears
+   * them (e.g. outside watch mode).
    */
   setMinedOut(mined: MinedOut | null | undefined) {
     const version = mined?.version ?? null
     if (version === this.minedVersion) return
     this.minedVersion = version
-    const next = new Set<number>()
-    for (const [x, y] of mined?.tiles ?? []) {
-      if (this.inBounds(x, y)) next.add(y * this.width + x)
+    const toSet = (tiles: [number, number][] | undefined) => {
+      const set = new Set<number>()
+      for (const [x, y] of tiles ?? []) if (this.inBounds(x, y)) set.add(y * this.width + x)
+      return set
     }
-    const changed: number[] = []
-    for (const i of next) if (!this.minedOut.has(i)) changed.push(i)
-    for (const i of this.minedOut) if (!next.has(i)) changed.push(i)
+    const next = toSet(mined?.tiles)
+    const logged = toSet(mined?.logged)
+    const changed = new Set<number>()
+    for (const i of next) if (!this.minedOut.has(i)) changed.add(i)
+    for (const i of this.minedOut) if (!next.has(i)) changed.add(i)
+    for (const i of logged) if (!this.logged.has(i)) changed.add(i)
+    for (const i of this.logged) if (!logged.has(i)) changed.add(i)
     this.minedOut = next
-    for (const i of changed) this.repaintTile(i % this.width, Math.floor(i / this.width))
-    if (changed.length) this.geologyVersion++
+    this.logged = logged
+    const mm = this.minimapBase.getContext('2d')!
+    for (const i of changed) {
+      const x = i % this.width
+      const y = Math.floor(i / this.width)
+      this.repaintTile(x, y)
+      const [r, g, b] = this.minimapColor(i)
+      mm.fillStyle = `rgb(${r},${g},${b})`
+      mm.fillRect(x, y, 1, 1)
+    }
+    if (changed.size) this.geologyVersion++
   }
 
   /** Toggles the geological map: rock-unit colours over the land plus feature labels. */
@@ -333,6 +441,7 @@ export class GameEngine {
     this.redoStack = []
     this.savedMarker = null
     this.chunks.clear()
+    this.weather.invalidateLand()
     this.renderMinimapBase()
     if (!this.placed || this.boxBlocked(this.player.x, this.player.y)) {
       this.respawn()
@@ -352,14 +461,18 @@ export class GameEngine {
     // Stale creatures would slide across the map when the stream resumes.
     if (mode !== 'watch') {
       this.creatures.clear()
+      this.animals.clear()
       this.frameAt = 0
       this.hoverCreature = null
+      this.hoverAnimal = null
       this.setStructures([])
+      this.setFields([])
+      this.weather.reset()
     }
     this.canvas.style.cursor = mode === 'edit' ? 'crosshair' : 'default'
   }
 
-  /** Feeds the latest simulation frame; creatures glide towards it until the next one. */
+  /** Feeds the latest simulation frame; creatures and animals glide towards it until the next one. */
   setCreatureFrame(frame: SimFrame) {
     const now = performance.now()
     if (this.frameAt) {
@@ -371,23 +484,7 @@ export class GameEngine {
     const next = new Map<number, Creature>()
     for (const f of frame.creatures) {
       const c = this.creatures.get(f.id)
-      if (c) {
-        // Start the new segment from where the creature is drawn right now.
-        c.px = c.rx
-        c.py = c.ry
-        c.ph = c.rh
-      }
-      const cur: Creature = c ?? {
-        ...f,
-        px: f.x,
-        py: f.y,
-        ph: f.heading,
-        rx: f.x,
-        ry: f.y,
-        rh: f.heading,
-        step: 0,
-        moving: false,
-      }
+      const cur: Creature = c ?? { ...f, ...still(f.x, f.y, f.heading) }
       cur.name = f.name
       cur.hue = f.hue
       cur.size = f.size
@@ -395,18 +492,44 @@ export class GameEngine {
       cur.energy = f.energy
       cur.health = f.health
       cur.houseId = f.houseId
-      cur.x = f.x
-      cur.y = f.y
-      cur.heading = f.heading
-      if (Math.hypot(cur.x - cur.px, cur.y - cur.py) > SNAP_DISTANCE) {
-        cur.px = cur.rx = cur.x
-        cur.py = cur.ry = cur.y
-      }
+      retarget(cur, f.x, f.y, f.heading)
       next.set(f.id, cur)
     }
     this.creatures = next
     if (this.hoverCreature && !next.has(this.hoverCreature.id)) this.hoverCreature = null
     if (this.selectedId !== null && !next.has(this.selectedId)) this.stopFollow()
+
+    const herd = new Map<number, Animal>()
+    for (const f of frame.animals) {
+      const a = this.animals.get(f.id)
+      const cur: Animal = a ?? { id: f.id, species: f.species, flags: f.flags, ...still(f.x, f.y, f.heading) }
+      cur.species = f.species
+      cur.flags = f.flags
+      retarget(cur, f.x, f.y, f.heading)
+      herd.set(f.id, cur)
+    }
+    this.animals = herd
+    if (this.hoverAnimal && !herd.has(this.hoverAnimal.id)) this.hoverAnimal = null
+    this.weather.setWeather(frame.weather, frame.time)
+  }
+
+  /** Replaces the planted plots (sent on connect and whenever they change). */
+  setFields(list: FieldPlot[]) {
+    const plots = new Map<number, FieldPlot>()
+    this.plotRows.clear()
+    for (const p of list) {
+      if (!this.inBounds(p.x, p.y)) continue
+      // A palm or banana that has fruited is streamed as grown between harvests.
+      plots.set(p.y * this.width + p.x, p)
+      if (plotIsUpright(p)) {
+        let row = this.plotRows.get(p.y)
+        if (!row) this.plotRows.set(p.y, (row = []))
+        row.push(p)
+      }
+    }
+    for (const row of this.plotRows.values()) row.sort((a, b) => a.x - b.x)
+    this.plots = plots
+    this.fieldsVersion++
   }
 
   /** Replaces the buildings on the map (sent on connect and whenever they change). */
@@ -579,6 +702,7 @@ export class GameEngine {
 
     if (this.mode === 'watch') {
       this.updateCreatures(dt, now)
+      this.weather.update(dt)
       const target = this.selectedId !== null ? this.creatures.get(this.selectedId) : undefined
       if (this.following && target) {
         const follow = 1 - Math.exp(-dt * 6)
@@ -594,21 +718,8 @@ export class GameEngine {
 
   private updateCreatures(dt: number, now: number) {
     const t = Math.min(1, (now - this.frameAt) / this.frameInterval)
-    for (const c of this.creatures.values()) {
-      const rx = c.px + (c.x - c.px) * t
-      const ry = c.py + (c.y - c.py) * t
-      // Turn the short way round.
-      let dh = (c.heading - c.ph) % (Math.PI * 2)
-      if (dh > Math.PI) dh -= Math.PI * 2
-      else if (dh < -Math.PI) dh += Math.PI * 2
-      c.rh = c.ph + dh * t
-
-      const moved = Math.hypot(rx - c.rx, ry - c.ry)
-      c.moving = dt > 0 && moved / dt > 0.15
-      c.step += moved * 1.4 // stride cycles per tile walked
-      c.rx = rx
-      c.ry = ry
-    }
+    for (const c of this.creatures.values()) glide(c, t, dt, 1.4)
+    for (const a of this.animals.values()) glide(a, t, dt, ANIMAL_STRIDE[a.species] ?? 1.2)
   }
 
   private stopFollow() {
@@ -627,6 +738,23 @@ export class GameEngine {
       const d = Math.hypot(c.rx - p.x, c.ry - 0.45 * creatureScale(c.size, c.flags) - p.y)
       if (d < bestDist) {
         best = c
+        bestDist = d
+      }
+    }
+    return best
+  }
+
+  /** Nearest animal to a screen point, measured from the middle of its body. */
+  private animalAt(sx: number, sy: number): Animal | null {
+    const p = this.screenToTile(sx, sy)
+    const radius = Math.max(0.5, 9 / this.view().scale)
+    let best: Animal | null = null
+    let bestDist = radius
+    for (const a of this.animals.values()) {
+      const mid = ((ANIMAL_HEIGHT[a.species] ?? 20) / 2 / TILE) * animalScale(a.flags)
+      const d = Math.hypot(a.rx - p.x, a.ry - mid - p.y)
+      if (d < bestDist) {
+        best = a
         bestDist = d
       }
     }
@@ -656,9 +784,11 @@ export class GameEngine {
   private updateHoverTargets() {
     const p = this.pointer && !this.panning ? this.pointer : null
     const c = p ? this.creatureAt(p.sx, p.sy) : null
-    const st = p && !c ? this.structureAt(p.sx, p.sy) : null
-    if (c === this.hoverCreature && st === this.hoverStructure) return
+    const a = p && !c ? this.animalAt(p.sx, p.sy) : null
+    const st = p && !c && !a ? this.structureAt(p.sx, p.sy) : null
+    if (c === this.hoverCreature && a === this.hoverAnimal && st === this.hoverStructure) return
     this.hoverCreature = c
+    this.hoverAnimal = a
     this.hoverStructure = st
     this.canvas.style.cursor = c || st?.ownerId ? 'pointer' : 'default'
   }
@@ -745,6 +875,7 @@ export class GameEngine {
 
     ctx.setTransform(k, 0, 0, k, originX, originY)
     if (v.scale >= 16) this.drawWaterShimmer(tx0, ty0, tx1, ty1, time)
+    if (this.mode === 'watch') this.weather.drawTint(ctx, this.width, this.height, this.keyAt)
     if (this.geologyOverlay) this.drawGeologyOverlay()
     this.drawFlatStructures(tx0, ty0, tx1, ty1)
 
@@ -753,7 +884,11 @@ export class GameEngine {
     this.drawObjectsAndActors(tx0, Math.max(0, ty0 - 1), tx1, Math.min(this.height - 1, ty1 + 2), time)
 
     if (this.mode === 'edit') this.drawEditOverlay(tx0, ty0, tx1, ty1, k)
-    if (this.mode === 'watch') this.drawLabels(dpr, v, zoom)
+    if (this.mode === 'watch') {
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+      this.weather.drawRain(ctx, v.w, v.h, time)
+      this.drawLabels(dpr, v, zoom)
+    }
     if (this.geologyOverlay) this.drawFeatureLabels(dpr, v)
     this.drawMinimap(dpr)
   }
@@ -799,6 +934,7 @@ export class GameEngine {
     if (mined) drawPit(ctx, tx, ty, px, py)
     const obj = this.objectDefs[this.objects[i]]
     if (obj && FLAT_OBJECTS.has(obj.key)) drawFlat(ctx, obj.key, tx, ty, px, py)
+    else if (obj && obj.id !== 0 && this.logged.has(i)) drawStump(ctx, tx, ty, px, py)
   }
 
   /** Repaints one tile in its cached chunk, if that chunk is cached. */
@@ -837,12 +973,40 @@ export class GameEngine {
     ctx.globalAlpha = 1
   }
 
+  /** Farm fields and irrigation channels, then the crops growing on top of them. */
   private drawFlatStructures(tx0: number, ty0: number, tx1: number, ty1: number) {
+    const ctx = this.ctx
+    const inView = (x: number, y: number) => x >= tx0 - 1 && x <= tx1 + 1 && y >= ty0 - 1 && y <= ty1 + 1
     for (const st of this.flatStructures) {
-      if (st.x < tx0 - 1 || st.x > tx1 + 1 || st.y < ty0 - 1 || st.y > ty1 + 1) continue
-      drawFarm(this.ctx, st.x * TILE, st.y * TILE, st.hue, !st.ownerId, st.x, st.y)
-      if (st === this.hoverStructure) this.outlineTile(st, 'rgba(255,255,255,0.8)')
+      if (!inView(st.x, st.y)) continue
+      const px = st.x * TILE
+      const py = st.y * TILE
+      if (st.kind === 'saluran_irigasi') {
+        drawIrrigation(ctx, px, py, this.channelLinks(st.x, st.y))
+        continue
+      }
+      // A field with crops on it is clearly worked, whoever built it.
+      const planted = this.plots.has(st.y * this.width + st.x)
+      drawFarm(ctx, px, py, st.hue, !st.ownerId && !planted, st.x, st.y, planted)
     }
+    for (const p of this.plots.values()) {
+      if (inView(p.x, p.y)) drawPlotFlat(ctx, p, p.x * TILE, p.y * TILE)
+    }
+    const hovered = this.hoverStructure
+    if (hovered && FLAT_STRUCTURES.has(hovered.kind)) this.outlineTile(hovered, 'rgba(255,255,255,0.8)')
+  }
+
+  /** Which sides (N=1, E=2, S=4, W=8) an irrigation channel joins: other channels, water and fields. */
+  private channelLinks(x: number, y: number) {
+    let links = 0
+    SIDES.forEach(([dx, dy], k) => {
+      const nx = x + dx
+      const ny = y + dy
+      if (!this.inBounds(nx, ny)) return
+      const st = this.structureByTile.get(ny * this.width + nx)
+      if (isWater(this.keyAt(nx, ny)) || st?.kind === 'saluran_irigasi' || st?.kind === 'ladang') links |= 1 << k
+    })
+    return links
   }
 
   private outlineTile(st: StructureFrame, color: string) {
@@ -862,15 +1026,28 @@ export class GameEngine {
       playerDrawn = true
     }
 
-    const actors =
+    const visible = <G extends Glide>(list: Iterable<G>) =>
       this.mode === 'watch'
-        ? [...this.creatures.values()]
-            .filter((c) => c.rx >= tx0 - 1 && c.rx <= tx1 + 2 && c.ry >= ty0 && c.ry <= ty1 + 3)
-            .sort((a, b) => a.ry - b.ry)
+        ? [...list].filter((g) => g.rx >= tx0 - 1 && g.rx <= tx1 + 2 && g.ry >= ty0 && g.ry <= ty1 + 3).sort((a, b) => a.ry - b.ry)
         : []
+    const actors = visible(this.creatures.values())
+    const herd = visible(this.animals.values())
     let next = 0
+    let nextAnimal = 0
+    // Two sorted lists, merged on the fly so people and animals overlap correctly.
     const drawActorsBefore = (limit: number) => {
-      for (; next < actors.length && actors[next].ry < limit; next++) this.drawOneCreature(actors[next], time)
+      for (;;) {
+        const c = next < actors.length && actors[next].ry < limit ? actors[next] : null
+        const a = nextAnimal < herd.length && herd[nextAnimal].ry < limit ? herd[nextAnimal] : null
+        if (!c && !a) return
+        if (a && (!c || a.ry < c.ry)) {
+          this.drawOneAnimal(a, time)
+          nextAnimal++
+        } else {
+          this.drawOneCreature(c!, time)
+          next++
+        }
+      }
     }
 
     const selectedHouse = this.selectedId !== null ? (this.creatures.get(this.selectedId)?.houseId ?? 0) : 0
@@ -882,10 +1059,12 @@ export class GameEngine {
       if (!playerDrawn && p.y < ty + 0.8) drawP()
       drawActorsBefore(ty + 0.8)
       for (let tx = sx0; tx <= sx1; tx++) {
-        const id = this.objects[ty * this.width + tx]
+        const i = ty * this.width + tx
+        const id = this.objects[i]
         if (id === 0) continue
         const def = this.objectDefs[id]
-        if (!def || FLAT_OBJECTS.has(def.key)) continue
+        // Felled trees are stumps, baked into the ground.
+        if (!def || FLAT_OBJECTS.has(def.key) || this.logged.has(i)) continue
         const variants = this.sprites.get(def.key)
         if (variants) {
           const sprite = variants[Math.floor(hash(tx, ty, 7) * VARIANTS)]
@@ -893,6 +1072,9 @@ export class GameEngine {
         } else {
           drawFallbackObject(ctx, def.color, tx * TILE, ty * TILE)
         }
+      }
+      for (const p of this.plotRows.get(ty) ?? []) {
+        if (p.x >= sx0 && p.x <= sx1) drawPlotUpright(ctx, p, p.x * TILE, p.y * TILE)
       }
       for (const st of this.structureRows.get(ty) ?? []) {
         if (st.x < sx0 || st.x > sx1) continue
@@ -917,7 +1099,7 @@ export class GameEngine {
       ctx.stroke()
       ctx.setLineDash([])
     }
-    const sprite = structureSprite(st.kind, st.level, st.hue, !st.ownerId)
+    const sprite = structureSprite(st.kind, st.level, st.hue, !st.ownerId && !COMMUNAL_STRUCTURES.has(st.kind))
     ctx.drawImage(sprite, st.x * TILE - TILE / 2, (st.y + 1) * TILE - STRUCTURE_H, STRUCTURE_W, STRUCTURE_H)
   }
 
@@ -942,6 +1124,27 @@ export class GameEngine {
       step: c.step,
       moving: c.moving,
       variant: c.id,
+      time,
+    })
+  }
+
+  private drawOneAnimal(a: Animal, time: number) {
+    const ctx = this.ctx
+    if (a === this.hoverAnimal) {
+      const s = animalScale(a.flags)
+      ctx.strokeStyle = 'rgba(255,255,255,0.7)'
+      ctx.lineWidth = 1.5
+      ctx.beginPath()
+      ctx.ellipse(a.rx * TILE, a.ry * TILE, 14 * s, 5 * s, 0, 0, Math.PI * 2)
+      ctx.stroke()
+    }
+    drawAnimal(ctx, a.rx * TILE, a.ry * TILE, {
+      species: a.species,
+      heading: a.rh,
+      flags: a.flags,
+      step: a.step,
+      moving: a.moving,
+      variant: a.id,
       time,
     })
   }
@@ -1023,7 +1226,8 @@ export class GameEngine {
     const selected = this.selectedId !== null ? this.creatures.get(this.selectedId) : undefined
     if (selected) shown.add(selected)
     const st = this.hoverStructure
-    if (!shown.size && !st) return
+    const animal = this.hoverAnimal
+    if (!shown.size && !st && !animal) return
 
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
     ctx.font = '600 12px Inter, system-ui, sans-serif'
@@ -1041,6 +1245,20 @@ export class GameEngine {
       ctx.roundRect(x - w / 2, y - 10, w, 20, 6)
       ctx.fill()
       ctx.fillStyle = st.ownerId ? `hsl(${st.hue} 80% 75%)` : '#b8c0cc'
+      ctx.fillText(text, x - w / 2 + 7, y + 0.5)
+    }
+
+    if (animal) {
+      const text = animalLabel(animal.species, animal.flags)
+      const head = (ANIMAL_HEIGHT[animal.species] ?? 20) * animalScale(animal.flags) * zoom
+      const x = (animal.rx - v.left) * v.scale
+      const y = (animal.ry - v.top) * v.scale - head - 10
+      const w = ctx.measureText(text).width + 14
+      ctx.fillStyle = 'rgba(10,18,30,0.82)'
+      ctx.beginPath()
+      ctx.roundRect(x - w / 2, y - 10, w, 20, 6)
+      ctx.fill()
+      ctx.fillStyle = animal.flags & ANIMAL_FLAG.tame ? '#ffd166' : '#f3ead2'
       ctx.fillText(text, x - w / 2 + 7, y + 0.5)
     }
 
@@ -1118,7 +1336,7 @@ export class GameEngine {
 
   private minimapColor(i: number) {
     const obj = this.objectDefs[this.objects[i]]
-    if (obj && obj.id !== 0 && !FLAT_OBJECTS.has(obj.key)) return this.objectRgb[obj.id]
+    if (obj && obj.id !== 0 && !FLAT_OBJECTS.has(obj.key) && !this.logged.has(i)) return this.objectRgb[obj.id]
     return this.groundRgb[this.ground[i]] ?? [255, 0, 255]
   }
 
@@ -1199,7 +1417,7 @@ export class GameEngine {
   private updateHover() {
     const t = this.hoverTile()
     const i = t ? t.y * this.width + t.x : -1
-    const key = t ? `${t.x},${t.y},${this.ground[i]},${this.objects[i]},${this.geologyVersion}` : ''
+    const key = t ? `${t.x},${t.y},${this.ground[i]},${this.objects[i]},${this.geologyVersion},${this.fieldsVersion}` : ''
     if (key === this.hoverKey) return
     this.hoverKey = key
     this.events.onHover?.(
@@ -1212,6 +1430,8 @@ export class GameEngine {
             deposits: (this.deposits.get(i) ?? []).map(({ item, model }) => ({ item, model })),
             rock: this.rocks ? this.rockTypes[this.rocks[i]] : undefined,
             minedOut: this.minedOut.has(i) || undefined,
+            stump: (this.logged.has(i) && this.objects[i] !== 0) || undefined,
+            plot: this.plots.get(i),
           }
         : null,
     )
@@ -1258,6 +1478,7 @@ export class GameEngine {
 
   private tileChanged(x: number, y: number) {
     this.repaintAround(x, y)
+    this.weather.invalidateLand()
     const ctx = this.minimapBase.getContext('2d')!
     const [r, g, b] = this.minimapColor(y * this.width + x)
     ctx.fillStyle = `rgb(${r},${g},${b})`
@@ -1265,6 +1486,7 @@ export class GameEngine {
   }
 
   private bulkChanged(changes: Change[]) {
+    this.weather.invalidateLand()
     if (changes.length > BULK_REDRAW) {
       this.chunks.clear()
       this.renderMinimapBase()
@@ -1428,9 +1650,13 @@ export class GameEngine {
     if (this.press && this.pointer) {
       const { sx, sy } = this.pointer
       // A creature wins over the building behind it; a building selects its owner.
-      const id = this.creatureAt(sx, sy)?.id ?? (this.structureAt(sx, sy)?.ownerId || null)
-      this.selectedId = id
-      this.events.onSelectCreature?.(id)
+      // Animals can't be inspected, so clicking one leaves the selection alone.
+      const creature = this.creatureAt(sx, sy)
+      if (creature || !this.animalAt(sx, sy)) {
+        const id = creature?.id ?? (this.structureAt(sx, sy)?.ownerId || null)
+        this.selectedId = id
+        this.events.onSelectCreature?.(id)
+      }
     }
     this.press = null
     this.panning = null

@@ -1,24 +1,31 @@
 // Command soak runs several worlds headless and in parallel, then writes a
-// report (summary.json + summary.md) comparing their demography with
+// report (summary.json.gz + summary.md) comparing their demography with
 // pre-modern reference ranges.
 //
 //	go run ./cmd/soak -seeds 1-8 -minutes 120
 //	go run ./cmd/soak -seeds 1-8 -off crime -label tanpa-kejahatan
+//	go run ./cmd/soak -seeds 1-8 -minutes 240 -off humans -label satwa  # the land without people
+//	go run ./cmd/soak -render ../reports/fase2/on                        # rewrite summary.md from the report's data
 package main
 
 import (
+	"bytes"
+	"compress/gzip"
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"path/filepath"
 	"runtime"
+	"runtime/pprof"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
+	"miniv2/backend/internal/ecology"
 	"miniv2/backend/internal/sim"
 	"miniv2/backend/internal/world"
 )
@@ -58,6 +65,31 @@ type point struct {
 	SurvivalTo15   *float64 `json:"survivalTo15"`
 	TFR            *float64 `json:"tfr"`
 	Gini           *float64 `json:"gini"`
+	// Fase 2.
+	Animals   [ecology.SpeciesCount]int `json:"animals"`
+	Livestock int                       `json:"livestock"`
+	Plots     int                       `json:"plots"`
+	Forest    float64                   `json:"forest"`
+	FoodStock int                       `json:"foodStock"`
+	ENSO      string                    `json:"enso"`
+}
+
+// ecoFinal sums up the land over a run.
+type ecoFinal struct {
+	PeakPopulation int                           `json:"peakPopulation"`
+	CapacityHits   int                           `json:"capacityHits"`
+	Animals        [ecology.SpeciesCount]int     `json:"animals"`
+	AnimalsMin     [ecology.SpeciesCount]int     `json:"animalsMin"`
+	AnimalsMax     [ecology.SpeciesCount]int     `json:"animalsMax"`
+	Presence       [ecology.SpeciesCount]float64 `json:"presence"` // share of sampled minutes with the species alive
+	Extinctions    int                           `json:"extinctions"`
+	Arrivals       int                           `json:"arrivals"`
+	Forest         float64                       `json:"forest"`
+	MaxPlots       int                           `json:"maxPlots"`
+	Livestock      int                           `json:"livestock"`
+	FarmingMinute  *int                          `json:"farmingMinute"` // when farming was first invented
+	HerdingMinute  *int                          `json:"herdingMinute"`
+	Years          []ecology.YearRecord          `json:"years"`
 }
 
 type final struct {
@@ -84,6 +116,7 @@ type final struct {
 	SkillByAge     []sim.AgeSkill `json:"skillByAge"`
 	MsPerTick      float64        `json:"msPerTick"`
 	WallSeconds    float64        `json:"wallSeconds"`
+	Ecology        ecoFinal       `json:"ecology"`
 }
 
 type run struct {
@@ -107,10 +140,28 @@ func main() {
 	size := flag.Int("size", 128, "map width and height")
 	mapSeed := flag.Uint("mapseed", 1337, "map generator seed")
 	parallel := flag.Int("parallel", max(1, runtime.NumCPU()/2), "worlds simulated at once")
-	off := flag.String("off", "", "rules to switch off: crime, instincts, learning (= plasticity + culture)")
+	off := flag.String("off", "", "rules to switch off: crime, instincts, learning (= plasticity + culture), humans, farming, climate, fauna")
 	out := flag.String("out", "", "report directory (default <repo>/reports/<timestamp>)")
 	label := flag.String("label", "", "name of this run, shown in the report")
+	cpuprofile := flag.String("cpuprofile", "", "write a CPU profile of the whole run to this file")
+	render := flag.String("render", "", "only rewrite summary.md of this report directory from its data")
 	flag.Parse()
+	if *render != "" {
+		if err := rerender(*render); err != nil {
+			log.Fatal(err)
+		}
+		return
+	}
+	if *cpuprofile != "" {
+		f, err := os.Create(*cpuprofile)
+		if err != nil {
+			log.Fatal(err)
+		}
+		if err := pprof.StartCPUProfile(f); err != nil {
+			log.Fatal(err)
+		}
+		defer pprof.StopCPUProfile()
+	}
 
 	seeds, err := parseSeeds(*seedsFlag)
 	if err != nil {
@@ -174,11 +225,46 @@ func simulate(cfg config, seed uint64, opts sim.Options) run {
 	era1 := -1
 	var firstHouse *int
 	tierGen := map[int]int{}
+	var eco ecoFinal
+	for i := range eco.AnimalsMin {
+		eco.AnimalsMin[i] = -1
+	}
+	lastYear := 0
 	start := time.Now()
 	for minute := 1; minute <= cfg.Minutes; minute++ {
 		s.Advance(60 * sim.TicksPerSecond)
 		info := s.Info()
 		d := s.Demography().Current
+		ev := s.Ecology()
+		var animals [ecology.SpeciesCount]int
+		for i, sp := range ev.Species {
+			n := sp.Wild + sp.Tame
+			animals[i] = n
+			if eco.AnimalsMin[i] < 0 || n < eco.AnimalsMin[i] {
+				eco.AnimalsMin[i] = n
+			}
+			eco.AnimalsMax[i] = max(eco.AnimalsMax[i], n)
+			if n > 0 {
+				eco.Presence[i]++
+			}
+		}
+		for _, y := range ev.Years {
+			if y.Year > lastYear {
+				eco.Years = append(eco.Years, y)
+				lastYear = y.Year
+				eco.Extinctions += len(y.Extinct)
+				eco.Arrivals += len(y.Arrived)
+			}
+		}
+		eco.PeakPopulation = max(eco.PeakPopulation, info.Population)
+		eco.MaxPlots = max(eco.MaxPlots, ev.Plots)
+		known := s.TechsKnown()
+		if eco.FarmingMinute == nil && known["pertanian"] {
+			eco.FarmingMinute = &minute
+		}
+		if eco.HerdingMinute == nil && known["peternakan"] {
+			eco.HerdingMinute = &minute
+		}
 		if era1 < 0 && info.Era > 1 {
 			era1 = minute
 		}
@@ -201,8 +287,18 @@ func simulate(cfg config, seed uint64, opts sim.Options) run {
 			AvgSkill: skill, KnowledgeLost: info.KnowledgeLost, Tier: info.Tier, Elements: info.ElementsDiscovered,
 			Houses: info.Houses, Crimes: info.Crimes, Kindness: info.Kindness, Kills: info.Kills,
 			LifeExpectancy: d.LifeExpectancy, SurvivalTo15: d.SurvivalTo15, TFR: d.TFR, Gini: d.Gini,
+			Animals: animals, Livestock: info.Livestock, Plots: ev.Plots, Forest: ev.Forest,
+			FoodStock: ev.Food.Carried + ev.Food.Stored + ev.Food.Granary, ENSO: ev.ENSO,
 		})
 	}
+	ev := s.Ecology()
+	for i, sp := range ev.Species {
+		eco.Animals[i] = sp.Wild + sp.Tame
+		eco.Presence[i] /= float64(cfg.Minutes)
+		eco.Livestock += sp.Tame
+	}
+	eco.Forest = ev.Forest
+	eco.CapacityHits = s.Info().CapacityHits
 	wall := time.Since(start)
 	if era1 < 0 {
 		era1 = cfg.Minutes
@@ -220,6 +316,7 @@ func simulate(cfg config, seed uint64, opts sim.Options) run {
 		AvgSkill:       r.Series[len(r.Series)-1].AvgSkill,
 		MsPerTick:      float64(wall.Microseconds()) / 1000 / float64(cfg.Minutes*60*sim.TicksPerSecond),
 		WallSeconds:    wall.Seconds(),
+		Ecology:        eco,
 	}
 	return r
 }
@@ -269,8 +366,16 @@ func parseOff(spec string) (sim.Options, []string, error) {
 			opts.NoPlasticity = true
 		case "culture":
 			opts.NoCulture = true
+		case "humans":
+			opts.NoHumans = true
+		case "farming":
+			opts.NoFarming = true
+		case "climate":
+			opts.NoClimate = true
+		case "fauna":
+			opts.NoFauna = true
 		default:
-			return opts, nil, fmt.Errorf("unknown rule %q (known: crime, instincts, learning, plasticity, culture)", name)
+			return opts, nil, fmt.Errorf("unknown rule %q (known: crime, instincts, learning, plasticity, culture, humans, farming, climate, fauna)", name)
 		}
 		list = append(list, name)
 	}
@@ -303,15 +408,54 @@ func repoRoot() string {
 	return wd
 }
 
+// write saves the report: the full data as gzipped JSON (a world's yearly
+// ecology records make it large) and the readable summary.md.
 func write(dir string, rep report) error {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
-	data, err := json.MarshalIndent(rep, "", "  ")
+	data, err := json.Marshal(rep)
 	if err != nil {
 		return err
 	}
-	if err := os.WriteFile(filepath.Join(dir, "summary.json"), data, 0o644); err != nil {
+	var buf bytes.Buffer
+	zw := gzip.NewWriter(&buf)
+	if _, err := zw.Write(data); err != nil {
+		return err
+	}
+	if err := zw.Close(); err != nil {
+		return err
+	}
+	if err := os.WriteFile(filepath.Join(dir, "summary.json.gz"), buf.Bytes(), 0o644); err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(dir, "summary.md"), []byte(markdown(rep)), 0o644)
+}
+
+// readReport loads a report's data: summary.json.gz, or the plain
+// summary.json older reports have.
+func readReport(dir string) (report, error) {
+	var rep report
+	data, err := os.ReadFile(filepath.Join(dir, "summary.json.gz"))
+	if err == nil {
+		zr, zerr := gzip.NewReader(bytes.NewReader(data))
+		if zerr != nil {
+			return rep, zerr
+		}
+		if data, err = io.ReadAll(zr); err != nil {
+			return rep, err
+		}
+	} else if data, err = os.ReadFile(filepath.Join(dir, "summary.json")); err != nil {
+		return rep, err
+	}
+	return rep, json.Unmarshal(data, &rep)
+}
+
+// rerender rebuilds a report's summary.md from its data, after the report
+// layout changed.
+func rerender(dir string) error {
+	rep, err := readReport(dir)
+	if err != nil {
 		return err
 	}
 	return os.WriteFile(filepath.Join(dir, "summary.md"), []byte(markdown(rep)), 0o644)

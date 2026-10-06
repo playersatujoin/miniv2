@@ -11,11 +11,11 @@ import (
 
 const (
 	numRays     = 5
-	numChannels = 6
-	numInternal = 30
+	numChannels = 7
+	numInternal = 36
 
 	NumInputs  = numRays*numChannels + numInternal
-	NumOutputs = 13
+	NumOutputs = 15
 
 	// Brain size is inherited and evolves: hidden neurons per genome.
 	minHidden     = 8
@@ -25,7 +25,7 @@ const (
 	maxWeight = 4
 )
 
-// Input layout: six ray channels (channel-major), then internal senses.
+// Input layout: seven ray channels (channel-major), then internal senses.
 const (
 	inObstacle = iota * numRays
 	inFood
@@ -33,6 +33,7 @@ const (
 	inMate
 	inSame
 	inResource
+	inAnimal
 )
 
 const (
@@ -63,6 +64,12 @@ const (
 	inBestSkill
 	inReward
 	inLibraryNear
+	inSeason
+	inLight
+	inCanPlant
+	inCropReady
+	inLivestockHungry
+	inPredatorNear
 	inClock
 	inNoise
 	inBias
@@ -82,13 +89,15 @@ const (
 	outSteal
 	outAttack
 	outTeach
+	outPlant
+	outHunt
 )
 
 var rayDegrees = [numRays]float64{-60, -30, 0, 30, 60}
 
 var InputLabels = func() []string {
 	var out []string
-	for _, ch := range []string{"rintangan", "makanan", "air", "lawan jenis", "sesama jenis", "sumber daya"} {
+	for _, ch := range []string{"rintangan", "makanan", "air", "lawan jenis", "sesama jenis", "sumber daya", "hewan"} {
 		for _, d := range rayDegrees {
 			out = append(out, fmt.Sprintf("%s %g°", ch, d))
 		}
@@ -97,11 +106,12 @@ var InputLabels = func() []string {
 		"air di dekat", "sumber di sini", "menabrak", "pasangan dekat", "keluarga dekat", "orang asing dekat",
 		"reputasi orang dekat", "diserang", "bawa makanan", "bawa bahan", "bawa senjata", "rumah sendiri dekat",
 		"rumah orang lain dekat", "bisa membuat", "bisa membangun", "guru dekat", "murid dekat",
-		"keahlian tertinggi", "imbalan terakhir", "perpustakaan dekat", "jam internal", "acak (kehendak)", "bias")
+		"keahlian tertinggi", "imbalan terakhir", "perpustakaan dekat", "musim", "cahaya", "bisa menanam",
+		"tanaman siap panen", "ternak lapar", "pemangsa dekat", "jam internal", "acak (kehendak)", "bias")
 }()
 
 var OutputLabels = []string{"belok", "gerak", "makan", "minum", "kawin", "istirahat",
-	"kumpulkan", "buat", "bangun", "beri", "curi", "serang", "ajar"}
+	"kumpulkan", "buat", "bangun", "beri", "curi", "serang", "ajar", "tanam", "buru"}
 
 type Traits struct {
 	Hue          float64 `json:"hue"`
@@ -258,14 +268,22 @@ func (g *Genome) addInstincts() {
 	reflex(0, map[int]float64{inFoodHere: 4, inCarryFood: 3, inEnergy: -4, inBias: 2}, outEat)
 	reflex(1, map[int]float64{inWaterNear: 3, inHydration: -5, inBias: 2}, outDrink)
 	reflex(2, map[int]float64{inPartnerNear: 2, inFertile: 2, inEnergy: 1, inBias: -2}, outMate)
-	reflex(7, map[int]float64{inSourceHere: 2, inEnergy: 3, inCarryMaterial: -3, inBias: -2.5}, outGather)
-	reflex(9, map[int]float64{inCanBuild: 3, inEnergy: 2, inBias: -3}, outBuild)
-	reflex(10, map[int]float64{inCanCraft: 3, inEnergy: 2, inBias: -3}, outCraft)
-	reflex(11, map[int]float64{inFamilyNear: 2.5, inCarryFood: 3, inEnergy: 1, inBias: -3}, outGive)
-	// Needs drive: search when hungry or thirsty with nothing at hand, idle when sated.
-	reflex(13, map[int]float64{inEnergy: -5, inHydration: -3, inFoodHere: -4, inWaterNear: -2, inBias: 6}, outMove)
-	// Show a younger one what you know when you are well fed.
-	reflex(14, map[int]float64{inStudentNear: 3, inBestSkill: 2, inEnergy: 1, inBias: -3}, outTeach)
+	reflex(7, map[int]float64{inSourceHere: 2, inCropReady: 2.5, inEnergy: 3, inCarryMaterial: -3, inBias: -2.5}, outGather)
+	// Build and craft only on a full stomach: the work holds you still.
+	reflex(9, map[int]float64{inCanBuild: 3, inEnergy: 4, inBias: -5.5}, outBuild)
+	reflex(10, map[int]float64{inCanCraft: 3, inEnergy: 4, inBias: -5.5}, outCraft)
+	reflex(11, map[int]float64{inFamilyNear: 2.5, inLivestockHungry: 2.5, inCarryFood: 3, inEnergy: 1, inBias: -3}, outGive)
+	// Needs drive: search when hungry with no food in reach, or thirsty with
+	// no water near; stay put to eat or drink, idle when sated.
+	reflex(13, map[int]float64{inEnergy: -5, inFoodHere: -4, inBias: 3.5}, outMove)
+	reflex(8, map[int]float64{inHydration: -6, inWaterNear: -4, inBias: 3}, outMove)
+	// Show a younger one what you know, but only when well fed (above about
+	// 0.7): teaching holds you still, and a hungry teacher starves.
+	reflex(14, map[int]float64{inStudentNear: 3, inBestSkill: 2, inEnergy: 6, inBias: -7.8}, outTeach)
+	// Put a seed or tuber in the ground when it would grow here.
+	reflex(15, map[int]float64{inCanPlant: 4, inEnergy: 1, inBias: -2.5}, outPlant)
+	// Hunt an animal in front when hungry, more readily with a spear.
+	reflex(16, map[int]float64{inAnimal + 2: 3, inEnergy: -2.5, inCarryWeapon: 1.5, inBias: -1}, outHunt)
 
 	// Steering: turn towards water, food, the opposite sex and resources, away from walls.
 	steer := func(h, channel int, w float64) {
@@ -276,11 +294,31 @@ func (g *Genome) addInstincts() {
 		}
 		g.WOut[h*NumOutputs+outTurn] += 1.5
 	}
-	steer(3, inWater, 1.5)
-	steer(4, inFood, 1.5)
+	// Water and food pull only when needed. Each pull is a pair of neurons
+	// that see the rays with opposite signs and share a gate: when sated the
+	// gate drives both to the same extreme and their pulls cancel; when
+	// thirsty or hungry the gate opens and the pair steers.
+	steerGated := func(h1, h2, channel int, w float64, need int, needW, open float64) {
+		for r, d := range rayDegrees {
+			if d != 0 {
+				v := float32(w * math.Copysign(1, d))
+				g.WIn[(channel+r)*H+h1] += v
+				g.WIn[(channel+r)*H+h2] -= v
+			}
+		}
+		for _, h := range []int{h1, h2} {
+			g.WIn[need*H+h] += float32(needW)
+			g.WIn[inBias*H+h] += float32(open)
+		}
+		g.WOut[h1*NumOutputs+outTurn] += 1.5
+		g.WOut[h2*NumOutputs+outTurn] -= 1.5
+	}
+	steerGated(3, 18, inWater, 1.5, inHydration, -6, 2)
+	steerGated(4, 19, inFood, 1.5, inEnergy, -6, 4)
 	steer(5, inMate, 0.8)
 	steer(6, inObstacle, -2)
 	steer(12, inResource, 1.5)
+	steer(17, inAnimal, 0.6)
 
 	g.BOut[outMove] += 0.5
 	g.BOut[outRest] -= 2

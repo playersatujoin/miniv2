@@ -303,6 +303,50 @@ Penyesuaian di luar rencana: plastisitas awal diturunkan (yang lebih tinggi meru
 
 Ukuran: **L–XL**.
 
+### Hasil Fase 2
+
+Selesai:
+- Paket `backend/internal/ecology`: iklim monsun dengan El Niño, La Niña, dan banjir; tumbuhan liar dan kesuburan tanah; enam tanaman pangan lokal; satwa (rusa, babi hutan, ayam hutan, kerbau liar, harimau); ikan; ternak.
+- Di simulasi: menanam, memanen, menyimpan benih, berburu (terpisah dari menyerang), memancing, domestikasi; bangunan ladang, saluran irigasi, lumbung, kandang, dan sumur.
+- Pangan membusuk, dan pengawetan (asap, garam) memperlambatnya.
+- Hanya air tawar yang bisa diminum (`world.FreshWater`: sungai sampai muaranya dan danau), dan orang mengingat tempat ia biasa minum.
+- Kebutuhan energi menurut jenis kelamin; bayi digendong dan disusui.
+- Batas populasi keras dihapus.
+- Simpanan v6. Frame stream membawa cuaca dan hewan, event `fields`, endpoint ekologi, dan panel Ekologi.
+- Laporan soak: asal pangan, El Niño berpasangan, opsi `-render`.
+
+Laporan A/B (16 dunia × 900 tahun per konfigurasi; tanpa manusia 8 × 1.800 tahun): `reports/fase2/comparison.md`.
+
+| Kriteria penerimaan | Hasil |
+| --- | --- |
+| Tanpa manusia, hewan berosilasi tapi bertahan ≥ 4 jam di 8/8 seed | ◐ Rusa dan babi hutan ada 100% waktu di 8/8. Ayam hutan (95%) dan kerbau (76%) kadang punah lalu datang lagi. Harimau hanya 49%: pulau ini cuma menampung 2–5 ekor, sehingga harimau hidup sebagai populasi yang punah lalu datang lagi (`TestWildlifePersists -long` kini menguji keberadaan sepanjang waktu, bukan satu titik di akhir) |
+| Perburuan berlebihan menyebabkan kepunahan lokal di sebagian seed | ✗ Perburuan hampir tidak terjadi (16 dunia × 900 tahun: 10 rusa, 16 babi, 1 kerbau). Hewan lari sebelum terpukul, dan tangan kosong butuh sekitar 5 pukulan. Perlu teknik berburu yang lebih realistis |
+| Pertanian menaikkan daya dukung (A/B) | ✓ Puncak median 175 lawan 54; populasi akhir lebih tinggi di 11/16 dunia; ladang memberi 50% energi |
+| Kemarau panjang terlihat sebagai lonjakan kematian karena kelaparan | ✓ Dibanding tahun netral di sekitarnya, kelaparan setahun sesudah El Niño ×1,29 pada petani dan ×1,49 pada pemburu-peramu (La Niña ×1,07). Petak layu di tahun El Niño, dan panen tahun berikutnya −17% |
+| Tidak ada batas populasi keras yang aktif dalam kondisi normal | ✓ Batas teknis tidak tersentuh sekali pun (on dan no-farming). Tanpa iklim, populasi petani 2,4× lebih besar dan mencapai batas itu |
+| Performa ≤ 1 core pada 20× | ✓ Median 0,59 ms/tick (≈ 24% satu core), tertinggi 2,29 ms/tick. Dunia petani berpenduduk ≈ 1.000 (pada putaran soak lain) butuh 4–6 ms/tick |
+
+Temuan:
+- **Pertanian gagal karena perilaku, bukan angka hasil panen.** Hasil panen masuk lumbung dan tidak pernah ditanam lagi, dan benih di tangan ikut dimakan. Aturan rumah tangga "simpan benih" menaikkan porsi ladang dari ≈ 1% menjadi 53%.
+- **Air laut yang bisa diminum** membuat seluruh pulau layak huni, dengan daya dukung ≈ 1.500 pemburu-peramu. Menurunkan pangan liar bukan jalan keluar: laju tumbuh kembali ×0,8 saja sudah menurunkan kelangsungan pendiri dari 30/32 ke 24/32. Air tawar yang realistis menurunkan daya dukung tanpa melukai pendiri, dan membuat permukiman tumbuh di tepi sungai.
+- **Rasio kelamin 152** disebabkan tubuh perempuan yang dihitung sebesar laki-laki, ditambah biaya hamil dan menyusui. Dengan 72% kebutuhan laki-laki sejak pubertas (Pontzer dkk. 2012), rasionya menjadi 73–104 (pemburu-peramu cenderung ke bawah).
+- **Petani lebih subur** (TFR 8,4 lawan 5,3), seperti pada transisi demografi Neolitikum.
+- **Determinisme:** seed yang sama menghasilkan dunia yang identik, juga setelah disimpan dan dimuat ulang di tengah jalan (`TestSameSeedAndSaveRestoreReplayExactly`). Tes ini menemukan dua bug yang sudah diperbaiki: bayi yang digendong kadang diletakkan di atas air, lalu dipindah saat dimuat ulang; dan jeda antar-peristiwa tidak ikut disimpan.
+
+Penyesuaian di luar rencana:
+- Laju lapar 3× dan laju haus 8×, dengan ingatan sumber air.
+- Sumur dipindah ke teknologi pertanian.
+- Air tanah tepi sungai mengikuti debit sungai setahun.
+- Bayi digendong dan disusui (dimajukan dari Fase 3).
+- Perbandingan keahlian antar-tetangga lewat array: `teacherOrStudentNear` turun dari 30% ke ≈ 1% waktu CPU.
+
+Masalah yang diwariskan:
+- **Ke Fase 2b:** teknik berburu (mengendap, tombak, berburu berkelompok) supaya kriteria perburuan bisa diuji; faktor kebutuhan perempuan (kemungkinan rasio massa tubuh ≈ 0,84, bukan 0,72).
+- **Ke Fase 3:**
+  - Kematian dewasa hampir seluruhnya karena lapar, dengan laju ≈ 5% per tahun di semua umur, sehingga modus usia kematian dewasa 18 tahun dan e15 16–23 tahun.
+  - Kematian bayi 0, dan peluang kembar 20% (nyata 1–2%).
+- **Ke optimasi:** dunia petani besar masih di atas anggaran performa.
+
 ---
 
 ## Fase 3 — Tubuh & kesehatan

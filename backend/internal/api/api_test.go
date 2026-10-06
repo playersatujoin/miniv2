@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -160,7 +161,7 @@ func firstEvents(t *testing.T, url string, kinds ...string) map[string]map[strin
 			if err := json.Unmarshal([]byte(data), &payload); err != nil {
 				t.Fatalf("bad %s JSON: %v", event, err)
 			}
-			if _, seen := got[event]; !seen {
+			if _, seen := got[event]; !seen && slices.Contains(kinds, event) {
 				got[event] = payload
 			}
 			if len(got) == len(kinds) {
@@ -198,7 +199,17 @@ func TestSimEndpoints(t *testing.T) {
 
 	// Pause so the creature we inspect can't die mid-test.
 	do(t, "PUT", base+"/speed", map[string]int{"speed": 0}, nil)
-	events := firstEvents(t, base+"/stream", "frame", "structures")
+	events := firstEvents(t, base+"/stream", "frame", "structures", "fields")
+	if _, ok := events["fields"]["v"].(float64); !ok {
+		t.Fatalf("fields event without version: %v", events["fields"])
+	}
+	if w, _ := events["frame"]["w"].([]any); len(w) != 5 {
+		t.Fatalf("frame without weather: %v", events["frame"]["w"])
+	}
+	var eco sim.EcologyView
+	if code := do(t, "GET", base+"/ecology", nil, &eco); code != http.StatusOK || len(eco.Species) != 5 || eco.Season == "" {
+		t.Fatalf("ecology: status %d, %d species, season %q", code, len(eco.Species), eco.Season)
+	}
 	creatures, _ := events["frame"]["c"].([]any)
 	if len(creatures) != 2 {
 		t.Fatalf("a new world should hold Adam and Hawa, frame: %v", events["frame"])

@@ -314,10 +314,10 @@ function circle(ctx: Ctx, x: number, y: number, r: number, color: string) {
   ctx.fill()
 }
 
-function ellipse(ctx: Ctx, x: number, y: number, rx: number, ry: number, color: string) {
+function ellipse(ctx: Ctx, x: number, y: number, rx: number, ry: number, color: string, rot = 0) {
   ctx.fillStyle = color
   ctx.beginPath()
-  ctx.ellipse(x, y, rx, ry, 0, 0, Math.PI * 2)
+  ctx.ellipse(x, y, rx, ry, rot, 0, Math.PI * 2)
   ctx.fill()
 }
 
@@ -876,13 +876,22 @@ export const STRUCTURE_H = TILE * 3
 export const STRUCTURE_REACH = 1.8
 
 /** Structures that lie flat on the ground and are drawn under everything else. */
-export const FLAT_STRUCTURES = new Set(['ladang'])
+export const FLAT_STRUCTURES = new Set(['ladang', 'saluran_irigasi'])
+
+/**
+ * Farm works stay in use after their builder dies (only houses are inherited),
+ * so they never look ruined just for having no living owner.
+ */
+export const COMMUNAL_STRUCTURES = new Set(['saluran_irigasi', 'lumbung', 'kandang'])
 
 const STRUCTURE_NAMES: Record<string, string> = {
   gubuk: 'Gubuk',
   rumah_kayu: 'Rumah Kayu',
   rumah_bata: 'Rumah Bata',
   ladang: 'Ladang',
+  saluran_irigasi: 'Saluran Irigasi',
+  lumbung: 'Lumbung',
+  kandang: 'Kandang',
   sumur: 'Sumur',
   tungku: 'Tungku',
   laboratorium: 'Laboratorium',
@@ -1287,6 +1296,101 @@ const paintLibrary: Paint = (ctx, hue) => {
   pennant(ctx, CX + 20, BY - 56, hue)
 }
 
+/** Lumbung: a granary on stilts with rat guards, under a tall curved thatch roof. */
+const paintGranary: Paint = (ctx, hue) => {
+  ellipse(ctx, CX, BY - 3, 18, 5, SHADOW)
+  // Four stilts, each with a round wooden disc the rats can't climb past.
+  ctx.fillStyle = '#5e3c22'
+  for (const x of [CX - 11, CX - 4, CX + 3, CX + 10]) ctx.fillRect(x - 1, BY - 20, 2.4, 18)
+  for (const x of [CX - 11, CX - 4, CX + 3, CX + 10]) ellipse(ctx, x + 0.2, BY - 13, 3.6, 1.2, '#8a6a48')
+  // Raised store room of woven bamboo.
+  ctx.fillStyle = '#a7834f'
+  ctx.fillRect(CX - 13, BY - 34, 26, 14)
+  ctx.fillStyle = '#8c6a3c'
+  for (let x = CX - 12; x < CX + 13; x += 3) ctx.fillRect(x, BY - 34, 1, 14)
+  ctx.fillStyle = '#6b4626'
+  ctx.fillRect(CX - 14, BY - 21, 28, 2)
+  ctx.fillStyle = '#3b2a1a'
+  ctx.fillRect(CX - 3, BY - 31, 6, 8)
+  // Tall thatch that bows outward at the eaves.
+  ctx.fillStyle = '#b89a5a'
+  ctx.beginPath()
+  ctx.moveTo(CX - 19, BY - 30)
+  ctx.quadraticCurveTo(CX - 13, BY - 42, CX - 3, BY - 60)
+  ctx.lineTo(CX + 3, BY - 60)
+  ctx.quadraticCurveTo(CX + 13, BY - 42, CX + 19, BY - 30)
+  ctx.closePath()
+  ctx.fill()
+  ctx.strokeStyle = '#8f7442'
+  ctx.lineWidth = 0.8
+  ctx.beginPath()
+  for (let i = -3; i <= 3; i++) {
+    ctx.moveTo(CX + i * 1, BY - 58)
+    ctx.lineTo(CX + i * 5.5, BY - 31)
+  }
+  ctx.stroke()
+  ctx.fillStyle = '#9a7d45'
+  ctx.fillRect(CX - 19, BY - 31, 38, 2)
+  pennant(ctx, CX + 1, BY - 70, hue)
+}
+
+/** Kandang: a low pen of posts and rails with a straw floor and a lean-to shelter. */
+const paintPen: Paint = (ctx, hue) => {
+  ellipse(ctx, CX, BY - 6, 24, 7, SHADOW)
+  // Straw-strewn floor.
+  ctx.fillStyle = '#9c8452'
+  ctx.beginPath()
+  ctx.moveTo(CX - 22, BY - 6)
+  ctx.lineTo(CX - 15, BY - 20)
+  ctx.lineTo(CX + 15, BY - 20)
+  ctx.lineTo(CX + 22, BY - 6)
+  ctx.closePath()
+  ctx.fill()
+  ctx.fillStyle = '#c4a96a'
+  for (let i = 0; i < 9; i++) ctx.fillRect(CX - 14 + i * 3.4, BY - 15 + (i % 3) * 3, 3, 0.8)
+  // Lean-to shelter at the back.
+  ctx.fillStyle = '#5e3c22'
+  ctx.fillRect(CX - 13, BY - 30, 2, 12)
+  ctx.fillRect(CX + 1, BY - 30, 2, 12)
+  ctx.fillStyle = `hsl(${hue} 30% 42%)`
+  ctx.beginPath()
+  ctx.moveTo(CX - 16, BY - 26)
+  ctx.lineTo(CX + 6, BY - 26)
+  ctx.lineTo(CX + 4, BY - 33)
+  ctx.lineTo(CX - 14, BY - 33)
+  ctx.closePath()
+  ctx.fill()
+  // Fence: back rail, then posts and front rails.
+  const post = '#6b4626'
+  const rail = '#8a5a32'
+  ctx.fillStyle = rail
+  ctx.fillRect(CX - 15, BY - 24, 30, 1.6)
+  ctx.fillStyle = post
+  for (const x of [CX - 15, CX - 5, CX + 5, CX + 14]) ctx.fillRect(x, BY - 26, 1.8, 7)
+  ctx.strokeStyle = rail
+  ctx.lineWidth = 1.6
+  ctx.beginPath()
+  ctx.moveTo(CX - 22, BY - 12)
+  ctx.lineTo(CX - 15, BY - 23)
+  ctx.moveTo(CX + 22, BY - 12)
+  ctx.lineTo(CX + 15, BY - 23)
+  ctx.stroke()
+  for (const x of [CX - 22, CX - 11, CX, CX + 11, CX + 20]) {
+    ctx.fillStyle = post
+    ctx.fillRect(x, BY - 14, 2.2, 10)
+    ctx.fillStyle = '#8a6a48'
+    ctx.fillRect(x, BY - 14, 2.2, 1)
+  }
+  ctx.fillStyle = rail
+  ctx.fillRect(CX - 22, BY - 12, 44, 1.8)
+  ctx.fillRect(CX - 22, BY - 8, 44, 1.8)
+  // A water trough.
+  ctx.fillStyle = '#6b4626'
+  ctx.fillRect(CX + 6, BY - 17, 9, 3)
+  ctx.fillStyle = '#5a9bd4'
+  ctx.fillRect(CX + 7, BY - 17, 7, 1)
+}
+
 const paintGeneric: Paint = (ctx, hue) => {
   ellipse(ctx, CX, BY - 3, 20, 5.5, SHADOW)
   ctx.fillStyle = '#a89f91'
@@ -1309,6 +1413,8 @@ const PAINTERS: Record<string, Paint> = {
   reaktor_nuklir: paintReactor,
   akselerator: paintAccelerator,
   perpustakaan: paintLibrary,
+  lumbung: paintGranary,
+  kandang: paintPen,
 }
 
 /** Houses of unknown kinds are drawn by level. */
@@ -1377,12 +1483,28 @@ export function structureSprite(kind: string, level: number, hue: number, abando
   return sprite
 }
 
-/** Farm field drawn flat on its tile at world pixel (px, py). */
-export function drawFarm(ctx: Ctx, px: number, py: number, hue: number, abandoned: boolean, tx: number, ty: number) {
+/**
+ * Farm field drawn flat on its tile at world pixel (px, py). A `planted` field
+ * shows only its tilled rows: the crop growing on it is drawn on top.
+ */
+export function drawFarm(
+  ctx: Ctx,
+  px: number,
+  py: number,
+  hue: number,
+  abandoned: boolean,
+  tx: number,
+  ty: number,
+  planted = false,
+) {
   ctx.fillStyle = abandoned ? '#6d5a45' : '#7a5332'
   ctx.fillRect(px + 1, py + 1, TILE - 2, TILE - 2)
   ctx.fillStyle = abandoned ? '#5a4a39' : '#5e3e24'
   for (let y = py + 5; y < py + TILE - 2; y += 6) ctx.fillRect(px + 2, y, TILE - 4, 2)
+  if (planted) {
+    pennant(ctx, px + TILE - 5, py - 6, hue)
+    return
+  }
   ctx.fillStyle = abandoned ? '#a8935a' : '#6cc24a'
   for (let y = py + 3, row = 0; y < py + TILE - 4; y += 6, row++) {
     for (let x = px + 4 + (row % 2) * 3; x < px + TILE - 3; x += 6) {
@@ -1393,6 +1515,73 @@ export function drawFarm(ctx: Ctx, px: number, py: number, hue: number, abandone
     }
   }
   if (!abandoned) pennant(ctx, px + TILE - 5, py - 6, hue)
+}
+
+/**
+ * Irrigation channel flat on its tile at world pixel (px, py): an earth-banked
+ * ditch of water, running towards the neighbours in `links` (bits N=1, E=2,
+ * S=4, W=8: other channels, rivers and fields it feeds).
+ */
+export function drawIrrigation(ctx: Ctx, px: number, py: number, links: number) {
+  const c = TILE / 2
+  const bank = '#7a5a38'
+  const water = '#3f86c4'
+  // A lone channel still shows as a short east–west ditch.
+  const arms = links || (2 | 8)
+  const arm = (bit: number, w: number, color: string) => {
+    if (!(arms & bit)) return
+    ctx.fillStyle = color
+    if (bit === 1) ctx.fillRect(px + c - w / 2, py, w, c)
+    else if (bit === 4) ctx.fillRect(px + c - w / 2, py + c, w, c)
+    else if (bit === 2) ctx.fillRect(px + c, py + c - w / 2, c, w)
+    else ctx.fillRect(px, py + c - w / 2, c, w)
+  }
+  for (const bit of [1, 2, 4, 8]) arm(bit, 12, bank)
+  ellipse(ctx, px + c, py + c, 7, 7, bank)
+  for (const bit of [1, 2, 4, 8]) arm(bit, 6, water)
+  ellipse(ctx, px + c, py + c, 4, 4, water)
+  ctx.fillStyle = 'rgba(255,255,255,0.35)'
+  ctx.fillRect(px + c - 2, py + c - 1, 3, 1)
+  // Stones lining the banks.
+  ctx.fillStyle = '#8d8a83'
+  for (let i = 0; i < 4; i++) {
+    const a = (i / 4) * Math.PI * 2 + 0.6
+    ctx.fillRect(px + c + Math.cos(a) * 7 - 1, py + c + Math.sin(a) * 7 - 1, 2, 1.6)
+  }
+}
+
+/** A tree cut down to a stump, baked into the ground chunk (its sprite is no longer drawn). */
+export function drawStump(ctx: Ctx, tx: number, ty: number, px: number, py: number) {
+  const cx = px + TILE / 2 + (hash(tx, ty, 620) - 0.5) * 6
+  const cy = py + TILE - 9
+  ellipse(ctx, cx + 1, cy + 4, 9, 3, 'rgba(0,0,0,0.25)')
+  // Roots.
+  ctx.fillStyle = '#5a3a1e'
+  ctx.beginPath()
+  ctx.moveTo(cx - 9, cy + 4)
+  ctx.lineTo(cx - 4, cy - 1)
+  ctx.lineTo(cx + 4, cy - 1)
+  ctx.lineTo(cx + 9, cy + 4)
+  ctx.closePath()
+  ctx.fill()
+  ctx.fillStyle = '#6b4423'
+  ctx.fillRect(cx - 5, cy - 6, 10, 8)
+  ellipse(ctx, cx, cy + 2, 5, 1.8, '#6b4423')
+  // Cut face with growth rings.
+  ellipse(ctx, cx, cy - 6, 5, 2.2, '#c99a62')
+  ctx.strokeStyle = '#a0703f'
+  ctx.lineWidth = 0.6
+  ctx.beginPath()
+  ctx.ellipse(cx, cy - 6, 3, 1.3, 0, 0, Math.PI * 2)
+  ctx.stroke()
+  // A sapling or two sprouting beside it.
+  if (hash(tx, ty, 621) < 0.6) {
+    const sx = cx + 7
+    ctx.fillStyle = '#4f9a3c'
+    ctx.fillRect(sx, cy - 4, 1, 6)
+    ellipse(ctx, sx - 1.5, cy - 4, 2, 1, '#5aa847', -0.5)
+    ellipse(ctx, sx + 2, cy - 5, 2, 1, '#5aa847', 0.5)
+  }
 }
 
 // --- Resource deposits -----------------------------------------------------

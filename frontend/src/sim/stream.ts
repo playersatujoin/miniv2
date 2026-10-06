@@ -1,6 +1,13 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { simStreamUrl } from './api'
-import { parseFrame, parseStructures, type SimFrame, type StructuresMessage } from './protocol'
+import {
+  parseFields,
+  parseFrame,
+  parseStructures,
+  type FieldsMessage,
+  type SimFrame,
+  type StructuresMessage,
+} from './protocol'
 
 export type StreamStatus = 'connecting' | 'live' | 'error'
 
@@ -9,6 +16,8 @@ export type StreamHandlers = {
   onFrame: (frame: SimFrame) => void
   /** On connect and whenever buildings change. */
   onStructures: (message: StructuresMessage) => void
+  /** On connect and whenever planted plots change (at most once a second). */
+  onFields?: (message: FieldsMessage) => void
 }
 
 /**
@@ -44,6 +53,9 @@ export function useSimStream(mapId: string, enabled: boolean, handlers: StreamHa
       })
       es.addEventListener('structures', (e) => {
         handlersRef.current.onStructures(parseStructures((e as MessageEvent<string>).data))
+      })
+      es.addEventListener('fields', (e) => {
+        handlersRef.current.onFields?.(parseFields((e as MessageEvent<string>).data))
       })
       es.onerror = () => {
         live = false

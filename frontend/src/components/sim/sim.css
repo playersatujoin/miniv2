@@ -1314,3 +1314,139 @@
   border-radius: 50%;
   box-sizing: border-box;
 }
+
+/* --- Fase 2: ecology ------------------------------------------------------ */
+
+.obs-clock {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: flex-end;
+  gap: 4px 6px;
+}
+
+.obs-header-row {
+  flex-wrap: wrap;
+}
+
+/* Season and ENSO badges: the words carry the meaning, the tint only helps. */
+.eco-badge {
+  display: inline-block;
+  padding: 1px 7px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--panel-2);
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.eco-season-hujan {
+  color: #9cc7f2;
+  border-color: #2f5680;
+}
+
+.eco-season-kemarau {
+  color: #e6c27a;
+  border-color: #6b5530;
+}
+
+.eco-enso-el_nino {
+  color: #f09a9a;
+  border-color: #7a3a3a;
+  font-weight: 600;
+}
+
+.eco-enso-la_nina {
+  color: #8fbcf2;
+  border-color: #2f5a8a;
+  font-weight: 600;
+}
+
+.eco-badges {
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.eco-meter-track {
+  position: relative;
+  overflow: visible;
+}
+
+.eco-note {
+  margin: 0;
+  line-height: 1.45;
+}
+
+.eco-legend-value {
+  color: var(--text);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.eco-swatch {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  flex: none;
+}
+
+.eco-flood-key {
+  color: var(--text);
+  font-weight: 700;
+}
+
+.eco-flood-mark {
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.eco-panel-title {
+  font-weight: 600;
+}
+
+.observer-panel .eco-window button {
+  height: 24px;
+  padding: 0 7px;
+  font-size: 11px;
+}
+
+.eco-table td:first-child {
+  white-space: nowrap;
+}
+
+.eco-extinct td {
+  color: var(--muted);
+}
+
+.eco-tag-perennial {
+  color: #a8d98a;
+  border-color: #3f6b35;
+}
+
+/* Five event filters: let them wrap instead of squeezing the labels. */
+.observer-panel .obs-ev-filter {
+  flex-wrap: wrap;
+}
+
+.observer-panel .obs-ev-filter button {
+  flex: 1 0 auto;
+}
+
+.obs-house-sub {
+  margin: 2px 0 0;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.eco-dash-key {
+  display: inline-block;
+  width: 12px;
+  border-top: 1px dashed var(--muted);
+  flex: none;
+}

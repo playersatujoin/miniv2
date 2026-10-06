@@ -60,6 +60,19 @@ var worldMetrics = []metric{
 	{"tier1Generation", "Generasi saat Zaman Logam", "", 0, func(f final) *float64 { return tierGen(f, 1) }},
 	{"tier2Generation", "Generasi saat Zaman Kimia", "", 0, func(f final) *float64 { return tierGen(f, 2) }},
 	{"msPerTick", "ms/tick", "", 2, func(f final) *float64 { return num(f.MsPerTick) }},
+	{"peakPopulation", "Populasi puncak", "", 0, func(f final) *float64 { return intNum(f.Ecology.PeakPopulation) }},
+	{"capacityHits", "Kehamilan tertahan batas teknis", "", 0, func(f final) *float64 { return intNum(f.Ecology.CapacityHits) }},
+	{"maxPlots", "Petak ladang terbanyak", "", 0, func(f final) *float64 { return intNum(f.Ecology.MaxPlots) }},
+	{"forest", "Hutan tersisa", "", 2, func(f final) *float64 { return num(f.Ecology.Forest) }},
+	{"extinctions", "Kepunahan lokal hewan", "", 0, func(f final) *float64 { return intNum(f.Ecology.Extinctions) }},
+	{"farmingMinute", "Pertanian ditemukan (menit sim)", "", 0, func(f final) *float64 { return minutePtr(f.Ecology.FarmingMinute) }},
+}
+
+func minutePtr(m *int) *float64 {
+	if m == nil {
+		return nil
+	}
+	return intNum(*m)
 }
 
 func tierGen(f final, tier int) *float64 {
@@ -197,17 +210,18 @@ func markdown(rep report) string {
 		fmt.Fprintf(&b, "| %s | %s |\n", m.label, fmtPtr(md[m.key], m.digit))
 	}
 
-	var causes [4]int
+	var causes [5]int
 	for _, r := range rep.Runs {
 		c := r.Final.Demography.DeathsByCause
 		causes[0] += c.Starvation
 		causes[1] += c.Thirst
 		causes[2] += c.OldAge
 		causes[3] += c.Killed
+		causes[4] += c.Animal
 	}
-	total := causes[0] + causes[1] + causes[2] + causes[3]
+	total := causes[0] + causes[1] + causes[2] + causes[3] + causes[4]
 	b.WriteString("\n## Penyebab kematian (semua dunia, 50 tahun terakhir)\n\n| Penyebab | Kematian | Bagian |\n| --- | ---: | ---: |\n")
-	for i, name := range []string{"Kelaparan", "Kehausan", "Usia tua", "Dibunuh"} {
+	for i, name := range []string{"Kelaparan", "Kehausan", "Usia tua", "Dibunuh", "Diterkam hewan"} {
 		share := 0.0
 		if total > 0 {
 			share = float64(causes[i]) * 100 / float64(total)
@@ -216,6 +230,7 @@ func markdown(rep report) string {
 	}
 	b.WriteString("\nCatatan: simulasi belum punya penyakit (Fase 3), sedangkan di masyarakat nyata penyakit menyebabkan lebih dari separuh kematian. Perbedaan ini temuan, bukan galat.\n")
 	culture(&b, rep)
+	ecologySection(&b, rep)
 	return b.String()
 }
 

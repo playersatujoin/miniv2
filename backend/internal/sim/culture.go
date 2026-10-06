@@ -3,6 +3,7 @@ package sim
 import (
 	"fmt"
 	"math"
+	"math/bits"
 	"slices"
 
 	"miniv2/backend/internal/chem"
@@ -429,19 +430,77 @@ func (s *Sim) holderCount(tech string) int {
 // teacherOrStudentNear senses whether someone nearby knows clearly more
 // (a possible teacher) or clearly less (a possible student) than c.
 func (s *Sim) teacherOrStudentNear(c, o *Creature) (teacher, student bool) {
-	if len(c.Skills) == 0 && len(o.Skills) == 0 {
-		return false, false
+	if c.skills.odd || o.skills.odd {
+		return s.teacherOrStudentSlow(c, o)
 	}
-	for _, t := range s.cat.techs {
-		mine, theirs := c.Skills[t.ID], o.Skills[t.ID]
-		if theirs >= skillPractise && theirs-mine > minLead {
+	// Only skills someone can practise make a difference, and people hold
+	// few: walk the bits of the ones they practise.
+	for m := o.skills.practised; m != 0; m &= m - 1 {
+		if t := bits.TrailingZeros64(m); o.skills.level[t]-c.skills.level[t] > minLead {
 			teacher = true
+			break
 		}
-		if mine >= skillPractise && mine-theirs > minLead {
+	}
+	for m := c.skills.practised; m != 0; m &= m - 1 {
+		if t := bits.TrailingZeros64(m); c.skills.level[t]-o.skills.level[t] > minLead {
 			student = true
+			break
 		}
 	}
 	return teacher, student
+}
+
+func (s *Sim) teacherOrStudentSlow(c, o *Creature) (teacher, student bool) {
+	for t, theirs := range o.Skills {
+		if theirs >= skillPractise && theirs-c.Skills[t] > minLead {
+			teacher = true
+			break
+		}
+	}
+	for t, mine := range c.Skills {
+		if mine >= skillPractise && mine-o.Skills[t] > minLead {
+			student = true
+			break
+		}
+	}
+	return teacher, student
+}
+
+// skillVec is a creature's skills copied into an array by technology, so
+// comparing two people (done for every pair of neighbours, every tick)
+// needs no map lookups.
+type skillVec struct {
+	level     [64]float64
+	practised uint64 // bit t: level[t] >= skillPractise
+	odd       bool   // holds a skill the catalog doesn't list: compare the maps
+}
+
+// refreshSkillVecs copies everyone's skills into their skillVec; skills
+// change at most once a tick.
+func (s *Sim) refreshSkillVecs() {
+	if s.techIndex == nil {
+		s.techIndex = map[string]int{}
+		for i, t := range s.cat.techs {
+			if i < 64 {
+				s.techIndex[t.ID] = i
+			}
+		}
+	}
+	for _, c := range s.creatures {
+		v := &c.skills
+		*v = skillVec{}
+		for t, l := range c.Skills {
+			i, ok := s.techIndex[t]
+			if !ok {
+				v.odd = true
+				continue
+			}
+			v.level[i] = l
+			if l >= skillPractise {
+				v.practised |= 1 << i
+			}
+		}
+	}
 }
 
 // SkillView is one learned skill for the inspector.

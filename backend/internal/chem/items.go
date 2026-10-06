@@ -15,9 +15,25 @@ const (
 func el(symbols ...string) []string { return symbols }
 
 var items = []Item{
-	// Food and everyday materials.
-	{ID: Food, Name: "Makanan", Kind: kindFood, Elements: el("C", "H", "O", "N"), Food: 0.4, Value: 1},
-	{ID: "rumput_laut", Name: "Rumput Laut", Kind: kindFood, Elements: el("C", "H", "O", "N", "I", "Br", "K"), Food: 0.1, Value: 0.5},
+	// Food. Keeps is a half-life in years, compressed like everything else
+	// against how fast bodies burn energy (a person lasts a few years without
+	// food here, not a couple of months): fresh meat and fish go off first,
+	// then fruit and greens, tubers last longer, dry grain and sago starch
+	// many years, smoked or salted food longest.
+	{ID: Food, Name: "Makanan", Kind: kindFood, Elements: el("C", "H", "O", "N"), Food: 0.4, Value: 1, Keeps: 1},
+	{ID: "rumput_laut", Name: "Rumput Laut", Kind: kindFood, Elements: el("C", "H", "O", "N", "I", "Br", "K"), Food: 0.1, Value: 0.5, Keeps: 1},
+	{ID: "padi", Name: "Padi (gabah)", Kind: kindFood, Elements: el("C", "H", "O", "N"), Food: 0.35, Value: 1.2, Keeps: 5},
+	{ID: "talas", Name: "Talas", Kind: kindFood, Elements: el("C", "H", "O", "N"), Food: 0.4, Value: 1, Keeps: 1.5},
+	{ID: "ubi", Name: "Ubi (uwi, gembili)", Kind: kindFood, Elements: el("C", "H", "O", "N"), Food: 0.4, Value: 1, Keeps: 2.5},
+	{ID: "pisang", Name: "Pisang", Kind: kindFood, Elements: el("C", "H", "O", "N"), Food: 0.3, Value: 1, Keeps: 0.75},
+	{ID: "kelapa", Name: "Kelapa", Kind: kindFood, Elements: el("C", "H", "O", "N"), Food: 0.45, Value: 1.2, Keeps: 3},
+	{ID: "sagu", Name: "Sagu", Kind: kindFood, Elements: el("C", "H", "O"), Food: 0.5, Value: 1.2, Keeps: 5},
+	{ID: "daging", Name: "Daging", Kind: kindFood, Elements: el("C", "H", "O", "N"), Food: 0.5, Value: 1.5, Keeps: 0.5},
+	{ID: "ikan", Name: "Ikan", Kind: kindFood, Elements: el("C", "H", "O", "N"), Food: 0.4, Value: 1.2, Keeps: 0.5},
+	{ID: "daging_asap", Name: "Daging Asap", Kind: kindFood, Elements: el("C", "H", "O", "N"), Food: 0.45, Value: 2.5, Keeps: 10},
+	{ID: "ikan_asin", Name: "Ikan Asin", Kind: kindFood, Elements: el("C", "H", "O", "N", "Na", "Cl"), Food: 0.4, Value: 2.5, Keeps: 10},
+
+	// Everyday materials.
 	{ID: "kayu", Name: "Kayu", Kind: kindBasic, Formula: "(C6H10O5)n", Elements: el("C", "H", "O"), Value: 1},
 	{ID: "serat", Name: "Serat Tumbuhan", Kind: kindBasic, Elements: el("C", "H", "O"), Value: 0.5},
 	{ID: "batu", Name: "Batu", Kind: kindBasic, Elements: el("Si", "O", "Al"), Value: 0.5},

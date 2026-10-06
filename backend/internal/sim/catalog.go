@@ -1,6 +1,7 @@
 package sim
 
 import (
+	"math"
 	"sync"
 
 	"miniv2/backend/internal/chem"
@@ -16,6 +17,11 @@ type geology interface {
 	Amounts() []float32
 	SetAmounts(a []float32) error
 	MinedOut() [][2]int
+	// Woodland is the tree cover left around each tile (1 = untouched) and
+	// the share of all trees cut.
+	Woodland() ([]float32, float64)
+	// Logged lists trees cut down to stumps.
+	Logged() [][2]int
 }
 
 // catalog indexes chem's static data for quick lookups. Tests swap in small
@@ -164,16 +170,38 @@ func (k *catalog) tierLabel(tier int) string {
 	return "Zaman " + string(rune('0'+tier))
 }
 
-// edible picks something from st that can be eaten, preferring proper food,
-// or "" if there is nothing.
-func (k *catalog) edible(st Stock) chem.ItemID {
-	if st[chem.Food] > 0 {
-		return chem.Food
-	}
+// edible picks what to eat from st: the food that spoils soonest (a ripe
+// banana before dried sago), or "" if there is nothing to eat. keep, if not
+// nil, says how many units of an item must stay (seed kept back for sowing).
+func (k *catalog) edible(st Stock, keep func(chem.ItemID) int) chem.ItemID {
+	var best chem.ItemID
+	bestKeeps := math.MaxFloat64
 	for _, id := range st.ids() {
-		if k.item(id).Food > 0 {
-			return id
+		it := k.item(id)
+		if it.Food <= 0 || st[id] <= 0 || keep != nil && st[id] <= keep(id) {
+			continue
+		}
+		keeps := it.Keeps
+		if keeps <= 0 {
+			keeps = math.MaxFloat64 / 2 // never spoils: eat it last
+		}
+		if keeps < bestKeeps {
+			best, bestKeeps = id, keeps
 		}
 	}
-	return ""
+	return best
+}
+
+// isFood reports whether an item can be eaten.
+func (k *catalog) isFood(id chem.ItemID) bool { return k.item(id).Food > 0 }
+
+// foodUnits counts the edible units in st.
+func (k *catalog) foodUnits(st Stock) int {
+	n := 0
+	for id, q := range st {
+		if k.isFood(id) {
+			n += q
+		}
+	}
+	return n
 }

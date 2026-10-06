@@ -8,12 +8,14 @@ import (
 	"io"
 
 	"miniv2/backend/internal/chem"
+	"miniv2/backend/internal/ecology"
 	"miniv2/backend/internal/world"
 )
 
-// v5: learning brains of any size, weights as compact float32 blobs, skills
-// and libraries. Older saves can't be read; the world starts over.
-const stateVersion = 5
+// v6 (Fase 2): the living land (climate, plants, fields, fish, animals) and
+// brains with senses for animals, seasons and crops. Older saves can't be
+// read; the world is backed up and starts over.
+const stateVersion = 6
 
 // state is the on-disk form of a Sim.
 type state struct {
@@ -39,7 +41,9 @@ type state struct {
 	Structures    []*Structure          `json:"structures"`
 	Elements      map[string]*Discovery `json:"elements"`
 	Techs         map[string]*Discovery `json:"techs"`
-	Food          []float32             `json:"food"`
+	Eco           *ecology.State        `json:"eco"`
+	EcoHistory    []EcoPoint            `json:"ecoHistory,omitempty"`
+	CapHits       int                   `json:"capHits,omitempty"`
 	Deposits      []float32             `json:"deposits"`
 	TileItems     []byte                `json:"tileItems"`
 	History       []HistoryPoint        `json:"history"`
@@ -50,6 +54,16 @@ type state struct {
 	Lost          map[string]bool       `json:"lost,omitempty"`
 	LastHolder    map[string]Ref        `json:"lastHolder,omitempty"`
 	KnowledgeLost int                   `json:"knowledgeLost,omitempty"`
+	EventClock    *eventClock           `json:"eventClock,omitempty"`
+}
+
+// eventClock is when each throttled kind of event was last reported, so a
+// restored world writes exactly the log the original would have.
+type eventClock struct {
+	Eco   map[string]float64 `json:"eco,omitempty"`
+	Learn float64            `json:"learn"`
+	Kind  float64            `json:"kind"`
+	Crime float64            `json:"crime"`
 }
 
 // MarshalState serialises the whole world, including every creature's genome
@@ -85,7 +99,9 @@ func (s *Sim) MarshalState() ([]byte, error) {
 		Structures:    s.structures,
 		Elements:      s.elements,
 		Techs:         s.techs,
-		Food:          s.terrain.food,
+		Eco:           s.eco.State(),
+		EcoHistory:    s.ecoHistory,
+		CapHits:       s.capHits,
 		Deposits:      s.geo.Amounts(),
 		TileItems:     s.tileItems,
 		History:       s.history,
@@ -96,6 +112,7 @@ func (s *Sim) MarshalState() ([]byte, error) {
 		Lost:          s.lost,
 		LastHolder:    s.lastHolder,
 		KnowledgeLost: s.knowledgeLost,
+		EventClock:    &eventClock{Eco: s.lastEcoEvt, Learn: s.lastLearnEvent, Kind: s.lastKindEvent, Crime: s.lastCrimeEvent},
 	})
 	if err != nil {
 		return nil, err
@@ -141,11 +158,16 @@ func restoreWith(m *world.Map, data []byte, cat *catalog) (*Sim, error) {
 	if err := s.src.UnmarshalBinary(st.Rng); err != nil {
 		return nil, err
 	}
-	if len(st.Food) == len(s.terrain.food) {
-		for i, f := range st.Food {
-			s.terrain.food[i] = min(f, s.terrain.foodCap[i])
-		}
+	if st.Eco == nil {
+		return nil, fmt.Errorf("save has no ecology")
 	}
+	eco, err := ecology.Restore(ecology.LandFromMap(m), st.Eco, s.rng, st.Options.ecology())
+	if err != nil {
+		return nil, err
+	}
+	s.eco = eco
+	s.ecoHistory = st.EcoHistory
+	s.capHits = st.CapHits
 	if len(st.Deposits) > 0 {
 		if err := s.geo.SetAmounts(st.Deposits); err != nil {
 			return nil, err
@@ -209,6 +231,12 @@ func restoreWith(m *world.Map, data []byte, cat *catalog) (*Sim, error) {
 		s.lastHolder = st.LastHolder
 	}
 	s.knowledgeLost = st.KnowledgeLost
+	if ec := st.EventClock; ec != nil {
+		if ec.Eco != nil {
+			s.lastEcoEvt = ec.Eco
+		}
+		s.lastLearnEvent, s.lastKindEvent, s.lastCrimeEvent = ec.Learn, ec.Kind, ec.Crime
+	}
 	s.removeBlockedStructures()
 	s.applyFarms()
 	s.relocateStranded()

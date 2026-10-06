@@ -9,7 +9,9 @@ var techs = []Tech{
 	{ID: "api", Name: "Api", Description: "Membakar kayu menjadi arang; dasar memasak dan membakar tanah liat.", Tier: 0},
 	{ID: "alat_batu", Name: "Alat Batu", Description: "Beliung dan tombak dari batu, kayu dan tali. Membuka penambangan bijih.", Tier: 0},
 	{ID: "tembikar", Name: "Tembikar", Description: "Membakar tanah liat menjadi bata.", Tier: 0, Requires: []string{"api"}},
-	{ID: "pertanian", Name: "Pertanian", Description: "Menanam ladang agar makanan tumbuh sendiri.", Tier: 0, Requires: []string{"alat_batu"}},
+	{ID: "pertanian", Name: "Pertanian", Description: "Menanam dan memanen padi, talas, ubi, pisang, kelapa dan sagu. Ditemukan saat panen pertama dari tanaman yang sengaja ditanam.", Tier: 0},
+	{ID: "peternakan", Name: "Peternakan", Description: "Menjinakkan dan memelihara ayam, babi dan kerbau. Ditemukan saat hewan liar pertama menjadi jinak.", Tier: 0},
+	{ID: "pengawetan", Name: "Pengawetan Pangan", Description: "Mengasap daging dan mengasinkan ikan agar tahan bertahun-tahun.", Tier: 0, Requires: []string{"api"}},
 	{ID: "tulisan", Name: "Tulisan", Description: "Menulis di lempeng tanah liat agar pengetahuan tidak hilang bersama pemiliknya.", Tier: 1, Requires: []string{"tembikar"}},
 	{ID: "peleburan", Name: "Peleburan", Description: "Tungku yang cukup panas untuk melebur bijih menjadi logam.", Tier: 1, Requires: []string{"tembikar"}},
 	{ID: "perunggu", Name: "Perunggu", Description: "Paduan tembaga dan timah yang lebih keras dari keduanya.", Tier: 1, Requires: []string{"peleburan"}},
@@ -29,8 +31,15 @@ var structures = []StructureKind{
 	{ID: "gubuk", Name: "Gubuk", Cost: map[ItemID]int{"kayu": 6, "serat": 4}, House: true, Level: 1, Storage: 40},
 	{ID: "rumah_kayu", Name: "Rumah Kayu", Cost: map[ItemID]int{"kayu": 12, "batu": 6, "tali": 2}, Tech: "alat_batu", House: true, Level: 2, Upgrades: "gubuk", Storage: 100},
 	{ID: "rumah_bata", Name: "Rumah Bata", Cost: map[ItemID]int{"bata": 16, "kayu": 6, "kaca": 2}, Tech: "kaca", House: true, Level: 3, Upgrades: "rumah_kayu", Storage: 200},
-	{ID: "ladang", Name: "Ladang", Cost: map[ItemID]int{"serat": 4, "kayu": 2}, Tech: "alat_batu", Teaches: "pertanian", Farm: true},
-	{ID: "sumur", Name: "Sumur", Cost: map[ItemID]int{"batu": 8, "tali": 2}, Tech: "alat_batu", Well: true},
+	// Farming: a cleared, weeded field, a ditch from the river, a granary on
+	// stilts and a pen for livestock.
+	{ID: "ladang", Name: "Ladang", Cost: map[ItemID]int{"serat": 4, "kayu": 2}, Tech: "pertanian", Farm: true},
+	{ID: "saluran_irigasi", Name: "Saluran Irigasi", Cost: map[ItemID]int{"batu": 4, "kayu": 2, "tali": 1}, Tech: "pertanian", Irrigation: true},
+	{ID: "lumbung", Name: "Lumbung", Cost: map[ItemID]int{"kayu": 10, "serat": 4, "tali": 2}, Tech: "pertanian", Granary: true, Storage: 120},
+	{ID: "kandang", Name: "Kandang", Cost: map[ItemID]int{"kayu": 8, "tali": 2}, Tech: "peternakan", Pen: true},
+	// Lined wells came with settled farming villages in the Neolithic;
+	// foragers moved to the water instead.
+	{ID: "sumur", Name: "Sumur", Cost: map[ItemID]int{"batu": 8, "tali": 2}, Tech: "pertanian", Well: true},
 	// Clay tablets: writing began with fired clay, long before paper.
 	{ID: "perpustakaan", Name: "Perpustakaan", Cost: map[ItemID]int{"bata": 8, "kayu": 4, "tanah_liat": 6}, Tech: "tembikar", Teaches: "tulisan", Library: true},
 	{ID: "tungku", Name: "Tungku", Cost: map[ItemID]int{"batu": 8, "tanah_liat": 4, "bata": 2}, Tech: "tembikar", Teaches: "peleburan", Tier: 1},
