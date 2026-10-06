@@ -1,17 +1,15 @@
 import { useQuery } from '@tanstack/react-query'
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import { knowledgeQuery, simInfoQuery } from '../../sim/api'
 import { CivilizationView } from './CivilizationView'
 import { Demography } from './Demography'
-import { Ecology, SeasonBadges } from './Ecology'
+import { Ecology } from './Ecology'
 import { EventLog } from './EventLog'
 import { Inspector } from './Inspector'
 import { PeriodicTable } from './PeriodicTable'
 import { PopulationChart } from './PopulationChart'
 import { PopulationStats } from './PopulationStats'
-import { SpeedControl } from './SpeedControl'
-import { MONTH_NAMES } from '../../sim/protocol'
-import { DEFAULT_SECONDS_PER_YEAR, SecondsPerYearContext, nf, yearAt } from './format'
+import { DEFAULT_SECONDS_PER_YEAR, SecondsPerYearContext } from './format'
 import './sim.css'
 
 export type ObserverPanelProps = {
@@ -31,113 +29,175 @@ const TABS: { id: Tab; label: string }[] = [
   { id: 'elements', label: 'Unsur' },
 ]
 
-/** Read-only window into the simulation: the observer watches, never steers. */
+const HEIGHT_KEY = 'miniv2.dock.height'
+const COLLAPSED_KEY = 'miniv2.dock.collapsed'
+const MIN_HEIGHT = 160
+/** About a third of the window, at most 340 px, so the map keeps most of a small screen. */
+const defaultHeight = () => Math.max(MIN_HEIGHT, Math.min(340, Math.round(window.innerHeight * 0.36)))
+
+const maxHeight = () => Math.max(MIN_HEIGHT, Math.round(window.innerHeight * 0.75))
+
+function storedHeight() {
+  const h = Number(localStorage.getItem(HEIGHT_KEY))
+  return Number.isFinite(h) && h >= MIN_HEIGHT ? Math.min(h, maxHeight()) : defaultHeight()
+}
+
+/**
+ * Read-only window into the simulation, docked under the map so the map gets
+ * the full width: the observer watches, never steers. The clock and the time
+ * control live in the toolbar (SimStatus).
+ */
 export function ObserverPanel({ mapId, selectedId, following, onSelect, onFollow }: ObserverPanelProps) {
   const [tab, setTab] = useState<Tab>('population')
+  const [height, setHeight] = useState(storedHeight)
+  const heightRef = useRef(height)
+  heightRef.current = height
+  const [collapsed, setCollapsed] = useState(() => localStorage.getItem(COLLAPSED_KEY) === '1')
   const info = useQuery(simInfoQuery(mapId))
   const knowledge = useQuery({ ...knowledgeQuery(mapId), enabled: tab === 'civilization' || tab === 'elements' })
   const data = info.data
   const spy = data?.secondsPerYear && data.secondsPerYear > 0 ? data.secondsPerYear : DEFAULT_SECONDS_PER_YEAR
-  const month = data ? MONTH_NAMES[Math.floor(((Math.max(0, data.time) / spy) % 1) * 12)] : undefined
-  const ref = useRef<HTMLElement>(null)
+  const inspectorRef = useRef<HTMLDivElement>(null)
 
-  // Bring the inspector into view when a creature gets picked (e.g. from the event log).
+  // A creature picked on the map or in the log opens the dock at its inspector.
   useEffect(() => {
-    if (selectedId !== null) ref.current?.scrollTo({ top: 0, behavior: 'smooth' })
+    if (selectedId === null) return
+    setCollapsed(false)
+    inspectorRef.current?.scrollTo({ top: 0, behavior: 'smooth' })
   }, [selectedId])
+
+  useEffect(() => localStorage.setItem(COLLAPSED_KEY, collapsed ? '1' : '0'), [collapsed])
+
+  // Drag the top edge to resize; the height is remembered.
+  const startResize = useCallback(
+    (e: ReactPointerEvent<HTMLDivElement>) => {
+      if (collapsed) return
+      e.preventDefault()
+      const startY = e.clientY
+      const startH = height
+      const handle = e.currentTarget
+      handle.setPointerCapture(e.pointerId)
+      const move = (ev: PointerEvent) => {
+        setHeight(Math.min(maxHeight(), Math.max(MIN_HEIGHT, startH + startY - ev.clientY)))
+      }
+      const up = (ev: PointerEvent) => {
+        handle.releasePointerCapture(ev.pointerId)
+        handle.removeEventListener('pointermove', move)
+        handle.removeEventListener('pointerup', up)
+        localStorage.setItem(HEIGHT_KEY, String(heightRef.current))
+      }
+      handle.addEventListener('pointermove', move)
+      handle.addEventListener('pointerup', up)
+    },
+    [collapsed, height],
+  )
 
   return (
     <SecondsPerYearContext.Provider value={spy}>
-    <aside ref={ref} className={`observer-panel ${tab === 'elements' ? 'obs-wide' : ''}`}>
-      <header className="obs-header">
-        <div className="obs-header-row">
-          <h2>
-            Akuarium
-            {data?.era != null && <span className="obs-era">Era {nf.format(data.era)}</span>}
-          </h2>
-          <span className="obs-clock">
-            {data ? `Tahun ${nf.format(data.year ?? yearAt(data.time, spy))}` : '—'}
-            <SeasonBadges season={data?.season} enso={data?.enso} title={month && `Bulan ${month}`} />
-            {data?.speed === 0 && <span className="obs-paused">dijeda</span>}
-          </span>
-        </div>
-        {data?.tierName && (
-          <p className="obs-tier small">
-            <span className="obs-tier-badge">{data.tierName}</span>
-            {data.elementsDiscovered != null && (
-              <span className="muted">
-                {nf.format(data.elementsDiscovered)}/{nf.format(data.elementsTotal ?? 118)} unsur
-              </span>
-            )}
-          </p>
-        )}
-        <SpeedControl mapId={mapId} speed={data?.speed} />
-      </header>
-
-      {info.isError && !data && (
-        <p className="obs-error small">Simulasi belum tersedia: {info.error.message}</p>
-      )}
-
-      {selectedId !== null ? (
-        <Inspector mapId={mapId} id={selectedId} following={following} onSelect={onSelect} onFollow={onFollow} />
-      ) : (
-        <p className="obs-hint small">
-          Klik salah satu makhluk atau rumah di peta untuk melihat isi otak dan keluarganya. Mereka memutuskan sendiri —
-          kamu hanya pengamat.
-        </p>
-      )}
-
-      <div className="obs-tabs" role="tablist" aria-label="Tampilan panel">
-        {TABS.map((t) => (
+      <section
+        className={`observer-panel obs-dock ${collapsed ? 'collapsed' : ''}`}
+        style={collapsed ? undefined : { height }}
+        aria-label="Panel pengamat"
+      >
+        <div
+          className="dock-resize"
+          role="separator"
+          aria-orientation="horizontal"
+          aria-label="Ubah tinggi panel"
+          title="Tarik untuk mengubah tinggi panel"
+          onPointerDown={startResize}
+        />
+        <div className="dock-bar">
+          <div className="obs-tabs" role="tablist" aria-label="Tampilan panel">
+            {TABS.map((t) => (
+              <button
+                key={t.id}
+                type="button"
+                role="tab"
+                id={`obs-tab-${t.id}`}
+                aria-selected={tab === t.id}
+                aria-controls={`obs-panel-${t.id}`}
+                className={tab === t.id && !collapsed ? 'active' : ''}
+                onClick={() => {
+                  setTab(t.id)
+                  setCollapsed(false)
+                }}
+              >
+                {t.label}
+              </button>
+            ))}
+          </div>
+          {selectedId === null && (
+            <span className="dock-hint small muted">
+              Klik makhluk atau rumah di peta untuk melihat otak dan keluarganya. Mereka memutuskan sendiri — kamu hanya
+              pengamat.
+            </span>
+          )}
           <button
-            key={t.id}
             type="button"
-            role="tab"
-            id={`obs-tab-${t.id}`}
-            aria-selected={tab === t.id}
-            aria-controls={`obs-panel-${t.id}`}
-            className={tab === t.id ? 'active' : ''}
-            onClick={() => setTab(t.id)}
+            className="dock-toggle"
+            aria-expanded={!collapsed}
+            title={collapsed ? 'Buka panel' : 'Ciutkan panel'}
+            onClick={() => setCollapsed((c) => !c)}
           >
-            {t.label}
+            {collapsed ? '▴' : '▾'}
           </button>
-        ))}
-      </div>
+        </div>
 
-      <div className="obs-tabpanel" role="tabpanel" id={`obs-panel-${tab}`} aria-labelledby={`obs-tab-${tab}`}>
-        {tab === 'population' && (
-          <>
-            {data ? (
-              <>
-                <PopulationStats info={data} />
-                <PopulationChart history={data.history ?? []} />
-                <Demography mapId={mapId} />
-              </>
-            ) : (
-              info.isPending && <p className="small muted">Menghubungkan ke simulasi…</p>
+        {!collapsed && (
+          <div className="dock-body">
+            {selectedId !== null && (
+              <div className="dock-inspector" ref={inspectorRef}>
+                <Inspector
+                  mapId={mapId}
+                  id={selectedId}
+                  following={following}
+                  onSelect={onSelect}
+                  onFollow={onFollow}
+                />
+              </div>
             )}
-            <EventLog events={data?.events ?? []} onSelect={onSelect} />
-          </>
+            <div
+              className={`dock-content obs-tabpanel dock-${tab}`}
+              role="tabpanel"
+              id={`obs-panel-${tab}`}
+              aria-labelledby={`obs-tab-${tab}`}
+            >
+              {info.isError && !data && (
+                <p className="obs-error small">Simulasi belum tersedia: {info.error.message}</p>
+              )}
+              {tab === 'population' &&
+                (data ? (
+                  <>
+                    <PopulationStats info={data} />
+                    <PopulationChart history={data.history ?? []} />
+                    <EventLog events={data.events ?? []} onSelect={onSelect} />
+                    <Demography mapId={mapId} />
+                  </>
+                ) : (
+                  info.isPending && <p className="small muted">Menghubungkan ke simulasi…</p>
+                ))}
+              {tab === 'ecology' && <Ecology mapId={mapId} />}
+              {tab === 'civilization' && (
+                <CivilizationView
+                  knowledge={knowledge.data}
+                  info={data}
+                  error={knowledge.isError ? knowledge.error.message : null}
+                  onSelect={onSelect}
+                />
+              )}
+              {tab === 'elements' &&
+                (knowledge.data ? (
+                  <PeriodicTable knowledge={knowledge.data} onSelect={onSelect} />
+                ) : (
+                  <p className={`small ${knowledge.isError ? 'obs-error' : 'muted'}`}>
+                    {knowledge.isError ? `Gagal memuat unsur: ${knowledge.error.message}` : 'Memuat tabel periodik…'}
+                  </p>
+                ))}
+            </div>
+          </div>
         )}
-        {tab === 'ecology' && <Ecology mapId={mapId} />}
-        {tab === 'civilization' && (
-          <CivilizationView
-            knowledge={knowledge.data}
-            info={data}
-            error={knowledge.isError ? knowledge.error.message : null}
-            onSelect={onSelect}
-          />
-        )}
-        {tab === 'elements' &&
-          (knowledge.data ? (
-            <PeriodicTable knowledge={knowledge.data} onSelect={onSelect} />
-          ) : (
-            <p className={`small ${knowledge.isError ? 'obs-error' : 'muted'}`}>
-              {knowledge.isError ? `Gagal memuat unsur: ${knowledge.error.message}` : 'Memuat tabel periodik…'}
-            </p>
-          ))}
-      </div>
-    </aside>
+      </section>
     </SecondsPerYearContext.Provider>
   )
 }

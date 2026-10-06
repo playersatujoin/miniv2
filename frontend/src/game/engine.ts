@@ -55,6 +55,7 @@ import {
   type KeyAt,
   type SpriteSheet,
 } from './render'
+import { AmbientFx, drawSmoke } from './ambient'
 import { WeatherFx } from './weather'
 
 export type Mode = 'play' | 'edit' | 'watch'
@@ -188,6 +189,12 @@ const CHUNK = 16 // tiles per side of a cached ground chunk
 const MAX_CHUNKS = 96
 const OVERLAY_RES = 4 // geology overlay pixels per tile (room for unit boundaries)
 const ZOOMS = [0.5, 0.75, 1, 1.5, 2, 3]
+
+/** How much each kind of plant bends in the wind (trees most). */
+const SWAY: Record<string, number> = { tree: 1, pine: 0.7, bush: 0.45 }
+/** Where smoke leaves a structure sprite (sprite pixels): the hearth by house level, the furnace's chimney. */
+const HEARTH_SMOKE: Record<number, [number, number]> = { 1: [TILE + 5, TILE * 3 - 35], 2: [TILE + 9, TILE * 3 - 44], 3: [TILE + 11, TILE * 3 - 54] }
+const FURNACE_SMOKE: [number, number] = [TILE + 8, TILE * 3 - 40]
 const WALK_SPEED = 5 // tiles per second
 const RUN_SPEED = 8.5
 const PAN_SPEED = 14
@@ -264,7 +271,10 @@ export class GameEngine {
 
   private player = { x: 0, y: 0, facing: { x: 0, y: 1 } as Facing, step: 0, moving: false }
   private placed = false
-  private camera = { x: 0, y: 0, zoomIndex: 3 }
+  private camera = { x: 0, y: 0, zoomIndex: 3, zoom: ZOOMS[3] }
+  /** While a zoom eases in: the screen point (CSS px) and the tile under it to keep together. */
+  private zoomAnchor: { sx: number; sy: number; x: number; y: number } | null = null
+  private ambient = new AmbientFx()
 
   private keys = new Set<string>()
   private pointer: { sx: number; sy: number } | null = null
@@ -511,6 +521,7 @@ export class GameEngine {
     this.animals = herd
     if (this.hoverAnimal && !herd.has(this.hoverAnimal.id)) this.hoverAnimal = null
     this.weather.setWeather(frame.weather, frame.time)
+    if (frame.weather) this.ambient.setWeather(frame.weather.moisture, frame.weather.rain)
   }
 
   /** Replaces the planted plots (sent on connect and whenever they change). */
@@ -581,13 +592,30 @@ export class GameEngine {
   zoomBy(dir: number, anchor?: { sx: number; sy: number }) {
     const next = Math.min(ZOOMS.length - 1, Math.max(0, this.camera.zoomIndex + dir))
     if (next === this.camera.zoomIndex) return
-    const before = anchor && this.screenToTile(anchor.sx, anchor.sy)
     this.camera.zoomIndex = next
     // Keep the tile under the cursor fixed while zooming a free camera.
-    if (before && (this.mode === 'edit' || (this.mode === 'watch' && !this.following))) {
-      const after = this.screenToTile(anchor.sx, anchor.sy)
-      this.camera.x += before.x - after.x
-      this.camera.y += before.y - after.y
+    const free = this.mode === 'edit' || (this.mode === 'watch' && !this.following)
+    if (anchor && free) {
+      const at = this.zoomAnchor ?? { ...anchor, ...this.screenToTile(anchor.sx, anchor.sy) }
+      this.zoomAnchor = { ...at, sx: anchor.sx, sy: anchor.sy }
+    } else {
+      this.zoomAnchor = null
+    }
+    if (this.ambient.still) this.settleZoom(1)
+  }
+
+  /** Eases the zoom towards its level by fraction k, holding the anchored tile under the cursor. */
+  private settleZoom(k: number) {
+    const target = ZOOMS[this.camera.zoomIndex]
+    const cam = this.camera
+    cam.zoom += (target - cam.zoom) * k
+    if (Math.abs(target - cam.zoom) < 0.002) cam.zoom = target
+    const a = this.zoomAnchor
+    if (a) {
+      const v = this.view()
+      cam.x += a.x - (v.left + a.sx / v.scale)
+      cam.y += a.y - (v.top + a.sy / v.scale)
+      if (cam.zoom === target) this.zoomAnchor = null
     }
   }
 
@@ -694,15 +722,18 @@ export class GameEngine {
         this.events.onPlayerTile?.({ x: Math.floor(p.x), y: Math.floor(p.y) })
       }
     } else if (len > 0 && !this.panning) {
-      const dist = ((PAN_SPEED * (running ? 2.5 : 1)) / ZOOMS[this.camera.zoomIndex]) * dt
+      const dist = ((PAN_SPEED * (running ? 2.5 : 1)) / this.camera.zoom) * dt
       this.camera.x += (ax / len) * dist
       this.camera.y += (ay / len) * dist
       this.stopFollow()
     }
 
+    if (this.camera.zoom !== ZOOMS[this.camera.zoomIndex]) this.settleZoom(1 - Math.exp(-dt * 14))
+
     if (this.mode === 'watch') {
       this.updateCreatures(dt, now)
       this.weather.update(dt)
+      this.ambient.update(dt, now / 1000)
       const target = this.selectedId !== null ? this.creatures.get(this.selectedId) : undefined
       if (this.following && target) {
         const follow = 1 - Math.exp(-dt * 6)
@@ -823,7 +854,7 @@ export class GameEngine {
   private view(): View {
     const w = this.canvas.clientWidth
     const h = this.canvas.clientHeight
-    const scale = TILE * ZOOMS[this.camera.zoomIndex]
+    const scale = TILE * this.camera.zoom
     return { w, h, scale, left: this.camera.x - w / 2 / scale, top: this.camera.y - h / 2 / scale }
   }
 
@@ -845,7 +876,7 @@ export class GameEngine {
     }
 
     const v = this.view()
-    const zoom = ZOOMS[this.camera.zoomIndex]
+    const zoom = this.camera.zoom
     const k = dpr * zoom // world pixels -> device pixels
     const originX = Math.round(-v.left * v.scale * dpr)
     const originY = Math.round(-v.top * v.scale * dpr)
@@ -882,11 +913,21 @@ export class GameEngine {
     ctx.imageSmoothingEnabled = true
     // Buildings reach up to two tiles above their own tile, so look a little below the view.
     this.drawObjectsAndActors(tx0, Math.max(0, ty0 - 1), tx1, Math.min(this.height - 1, ty1 + 2), time)
+    if (this.mode === 'watch') {
+      this.ambient.drawCloudShadows(ctx, TILE, this.width, this.height, time, {
+        x0: v.left,
+        y0: v.top,
+        x1: v.left + v.w / v.scale,
+        y1: v.top + v.h / v.scale,
+      })
+    }
 
     if (this.mode === 'edit') this.drawEditOverlay(tx0, ty0, tx1, ty1, k)
     if (this.mode === 'watch') {
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
       this.weather.drawRain(ctx, v.w, v.h, time)
+      this.ambient.drawBirds(ctx, v.w, v.h, time)
+      this.ambient.drawVignette(ctx, v.w, v.h)
       this.drawLabels(dpr, v, zoom)
     }
     if (this.geologyOverlay) this.drawFeatureLabels(dpr, v)
@@ -959,7 +1000,11 @@ export class GameEngine {
 
   private drawWaterShimmer(tx0: number, ty0: number, tx1: number, ty1: number, time: number) {
     const ctx = this.ctx
+    const rain = this.mode === 'watch' ? this.weather.rainLevel : 0
+    const land = (x: number, y: number) => x >= 0 && y >= 0 && x < this.width && y < this.height && !isWater(this.keyAt(x, y))
     ctx.fillStyle = '#ffffff'
+    ctx.strokeStyle = '#ffffff'
+    ctx.lineWidth = 1.2
     for (let ty = ty0; ty <= ty1; ty++) {
       for (let tx = tx0; tx <= tx1; tx++) {
         if (!isWater(this.keyAt(tx, ty))) continue
@@ -967,6 +1012,32 @@ export class GameEngine {
           const phase = (time * 0.3 + hash(tx, ty, 200 + j)) % 1
           ctx.globalAlpha = Math.sin(phase * Math.PI) * 0.25
           ctx.fillRect(tx * TILE + 2 + phase * (TILE - 12), ty * TILE + 5 + hash(tx, ty, 210 + j) * (TILE - 10), 8, 1.5)
+        }
+        // Foam laps at the shore, in and out.
+        const lap = 0.5 + 0.5 * Math.sin(time * 1.6 + hash(tx, ty, 220) * 6.28)
+        const reach = 2 + 3 * lap
+        ctx.globalAlpha = 0.18 + 0.22 * lap
+        if (land(tx, ty - 1)) ctx.fillRect(tx * TILE, ty * TILE, TILE, reach)
+        if (land(tx, ty + 1)) ctx.fillRect(tx * TILE, (ty + 1) * TILE - reach, TILE, reach)
+        if (land(tx - 1, ty)) ctx.fillRect(tx * TILE, ty * TILE, reach, TILE)
+        if (land(tx + 1, ty)) ctx.fillRect((tx + 1) * TILE - reach, ty * TILE, reach, TILE)
+        // Rain rings on the water.
+        if (rain > 0.05) {
+          for (let j = 0; j < 2; j++) {
+            const phase = (time * 1.1 + hash(tx, ty, 230 + j)) % 1
+            ctx.globalAlpha = (1 - phase) * 0.45 * rain
+            ctx.beginPath()
+            ctx.ellipse(
+              tx * TILE + 6 + hash(tx, ty, 240 + j) * (TILE - 12),
+              ty * TILE + 6 + hash(tx, ty, 250 + j) * (TILE - 12),
+              1 + phase * 6,
+              0.6 + phase * 3,
+              0,
+              0,
+              Math.PI * 2,
+            )
+            ctx.stroke()
+          }
         }
       }
     }
@@ -1068,24 +1139,44 @@ export class GameEngine {
         const variants = this.sprites.get(def.key)
         if (variants) {
           const sprite = variants[Math.floor(hash(tx, ty, 7) * VARIANTS)]
-          ctx.drawImage(sprite, tx * TILE - TILE / 2, ty * TILE - TILE, SPRITE_SIZE, SPRITE_SIZE)
+          const lean = this.mode === 'watch' && SWAY[def.key] ? this.ambient.sway(tx, ty, time, SWAY[def.key]) : 0
+          if (lean) {
+            // Bend in the wind from the foot of the trunk.
+            ctx.save()
+            ctx.translate(tx * TILE + TILE / 2, (ty + 1) * TILE)
+            ctx.transform(1, 0, -lean, 1, 0, 0)
+            ctx.drawImage(sprite, -SPRITE_SIZE / 2, -SPRITE_SIZE, SPRITE_SIZE, SPRITE_SIZE)
+            ctx.restore()
+          } else {
+            ctx.drawImage(sprite, tx * TILE - TILE / 2, ty * TILE - TILE, SPRITE_SIZE, SPRITE_SIZE)
+          }
         } else {
           drawFallbackObject(ctx, def.color, tx * TILE, ty * TILE)
         }
       }
       for (const p of this.plotRows.get(ty) ?? []) {
-        if (p.x >= sx0 && p.x <= sx1) drawPlotUpright(ctx, p, p.x * TILE, p.y * TILE)
+        if (p.x < sx0 || p.x > sx1) continue
+        const lean = this.mode === 'watch' ? this.ambient.sway(p.x, p.y, time, 1.3) : 0
+        if (lean) {
+          ctx.save()
+          ctx.translate(p.x * TILE + TILE / 2, (p.y + 1) * TILE)
+          ctx.transform(1, 0, -lean, 1, 0, 0)
+          drawPlotUpright(ctx, p, -TILE / 2, -TILE)
+          ctx.restore()
+        } else {
+          drawPlotUpright(ctx, p, p.x * TILE, p.y * TILE)
+        }
       }
       for (const st of this.structureRows.get(ty) ?? []) {
         if (st.x < sx0 || st.x > sx1) continue
-        this.drawStructure(st, selectedHouse)
+        this.drawStructure(st, selectedHouse, time)
       }
     }
     if (!playerDrawn) drawP()
     drawActorsBefore(Infinity)
   }
 
-  private drawStructure(st: StructureFrame, selectedHouse: number) {
+  private drawStructure(st: StructureFrame, selectedHouse: number, time: number) {
     const ctx = this.ctx
     const cx = st.x * TILE + TILE / 2
     const base = (st.y + 1) * TILE - 3
@@ -1094,23 +1185,43 @@ export class GameEngine {
       ctx.strokeStyle = st.id === selectedHouse ? '#ffd166' : 'rgba(255,255,255,0.75)'
       ctx.lineWidth = 1.5
       ctx.setLineDash(st.id === selectedHouse ? [4, 3] : [])
+      ctx.lineDashOffset = st.id === selectedHouse && !this.ambient.still ? -time * 8 : 0
       ctx.beginPath()
       ctx.ellipse(cx, base, 24, 7, 0, 0, Math.PI * 2)
       ctx.stroke()
       ctx.setLineDash([])
+      ctx.lineDashOffset = 0
     }
+    const ox = st.x * TILE - TILE / 2
+    const oy = (st.y + 1) * TILE - STRUCTURE_H
     const sprite = structureSprite(st.kind, st.level, st.hue, !st.ownerId && !COMMUNAL_STRUCTURES.has(st.kind))
-    ctx.drawImage(sprite, st.x * TILE - TILE / 2, (st.y + 1) * TILE - STRUCTURE_H, STRUCTURE_W, STRUCTURE_H)
+    ctx.drawImage(sprite, ox, oy, STRUCTURE_W, STRUCTURE_H)
+    // A lived-in house has its hearth going; a furnace smokes black.
+    if (this.mode === 'watch') {
+      const from = st.kind === 'tungku' ? FURNACE_SMOKE : st.level > 0 && st.ownerId ? HEARTH_SMOKE[st.level] : undefined
+      if (from) {
+        const a = this.ambient
+        drawSmoke(ctx, ox + from[0], oy + from[1], time, st.id, a.wind, a.windDir, st.kind === 'tungku', a.still)
+      }
+    }
   }
 
   private drawOneCreature(c: Creature, time: number) {
     const ctx = this.ctx
     const s = creatureScale(c.size, c.flags)
     if (c.id === this.selectedId || c === this.hoverCreature) {
-      ctx.strokeStyle = c.id === this.selectedId ? '#ffd166' : 'rgba(255,255,255,0.7)'
+      const selected = c.id === this.selectedId
+      const pulse = selected && !this.ambient.still ? 1 + 0.14 * Math.sin(time * 4) : 1
+      if (selected) {
+        ctx.fillStyle = 'rgba(255,209,102,0.16)'
+        ctx.beginPath()
+        ctx.ellipse(c.rx * TILE, c.ry * TILE, 13 * s * pulse, 6 * s * pulse, 0, 0, Math.PI * 2)
+        ctx.fill()
+      }
+      ctx.strokeStyle = selected ? '#ffd166' : 'rgba(255,255,255,0.7)'
       ctx.lineWidth = 1.5
       ctx.beginPath()
-      ctx.ellipse(c.rx * TILE, c.ry * TILE, 11 * s, 5 * s, 0, 0, Math.PI * 2)
+      ctx.ellipse(c.rx * TILE, c.ry * TILE, 11 * s * pulse, 5 * s * pulse, 0, 0, Math.PI * 2)
       ctx.stroke()
     }
     drawCreature(ctx, c.rx * TILE, c.ry * TILE, {
@@ -1287,7 +1398,7 @@ export class GameEngine {
 
   private drawEditOverlay(tx0: number, ty0: number, tx1: number, ty1: number, k: number) {
     const ctx = this.ctx
-    if (TILE * ZOOMS[this.camera.zoomIndex] >= 16) {
+    if (TILE * this.camera.zoom >= 16) {
       ctx.strokeStyle = 'rgba(0,0,0,0.18)'
       ctx.lineWidth = 1 / k
       ctx.beginPath()
@@ -1629,7 +1740,8 @@ export class GameEngine {
       this.stopFollow()
     }
     if (this.panning) {
-      const scale = TILE * ZOOMS[this.camera.zoomIndex]
+      this.zoomAnchor = null // a drag takes over from an easing zoom
+      const scale = TILE * this.camera.zoom
       this.camera.x = this.panning.cx - (e.clientX - this.panning.sx) / scale
       this.camera.y = this.panning.cy - (e.clientY - this.panning.sy) / scale
       return

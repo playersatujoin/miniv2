@@ -553,7 +553,9 @@ export function drawCreature(ctx: Ctx, px: number, py: number, c: CreatureLook) 
 
   const swing = c.moving ? Math.sin(c.step * Math.PI * 2) * 2 : 0
   const bob = c.moving ? Math.abs(Math.sin(c.step * Math.PI * 2)) * 1.2 : 0
-  const top = (resting ? -15 : -20) - bob // sitting lowers the body
+  // Standing still, the body rises and falls with each breath.
+  const breathe = c.moving ? 0 : (Math.sin(c.time * 2.3 + c.variant * 1.7) + 1) * 0.35
+  const top = (resting ? -15 : -20) - bob - breathe // sitting lowers the body
   const hy = top - 5
 
   ctx.save()

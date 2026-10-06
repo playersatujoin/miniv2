@@ -61,6 +61,11 @@ export class WeatherFx {
     }
   }
 
+  /** How hard it is raining as shown on screen, 0–1 (0 when the sim runs fast). */
+  get rainLevel() {
+    return this.rain
+  }
+
   /** Forgets the weather (leaving watch mode), so the next stream starts fresh. */
   reset() {
     this.target = null

@@ -5,6 +5,7 @@ import { ApiError, type GameMap, type Point, type TileSet } from '../api/client'
 import { geologyQuery, mapQuery, tilesQuery, useSaveMap } from '../api/queries'
 import { Palette } from '../components/Palette'
 import { ObserverPanel } from '../components/sim/ObserverPanel'
+import { SimStatus } from '../components/sim/SimStatus'
 import { GameCanvas } from '../game/GameCanvas'
 import { GeologyLegend, useGeologyOverlay } from '../game/GeologyLegend'
 import type { Brush, EngineEvents, GameEngine, HoverInfo, Mode, Tool } from '../game/engine'
@@ -40,7 +41,7 @@ export const Route = createFileRoute('/maps/$mapId')({
 
 const STREAM_LABELS: Record<StreamStatus, string> = {
   connecting: 'Menghubungkan…',
-  live: '● Langsung',
+  live: 'Langsung',
   error: 'Terputus',
 }
 
@@ -173,9 +174,16 @@ function MapEditor({ map, tiles, mode, selectedId }: EditorProps) {
         </div>
 
         {mode === 'watch' && (
-          <span className={`stream-badge ${streamStatus}`} title="Status aliran simulasi dari server">
-            {STREAM_LABELS[streamStatus]}
-          </span>
+          <>
+            <span
+              className={`stream-badge ${streamStatus}`}
+              title={`Status aliran simulasi dari server: ${STREAM_LABELS[streamStatus]}`}
+            >
+              <span aria-hidden="true">●</span>
+              <span className="stream-text"> {STREAM_LABELS[streamStatus]}</span>
+            </span>
+            <SimStatus mapId={map.id} />
+          </>
         )}
 
         <div className="spacer" />
@@ -188,7 +196,7 @@ function MapEditor({ map, tiles, mode, selectedId }: EditorProps) {
           title={geology.data ? 'Tampilkan peta geologi: jenis batuan, gunung api, sungai, dan endapan' : 'Data geologi belum tersedia'}
           onClick={() => setShowGeology(!showGeology)}
         >
-          🪨 Geologi
+          🪨 <span className="btn-label">Geologi</span>
         </button>
 
         <div className="segmented">

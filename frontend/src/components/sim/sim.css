@@ -1450,3 +1450,214 @@
   border-top: 1px dashed var(--muted);
   flex: none;
 }
+
+/* --- v3: toolbar status, panel docked under the map ------------------- */
+
+.sim-status {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.sim-clock {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.sim-clock strong {
+  font-variant-numeric: tabular-nums;
+}
+
+.sim-clock .obs-era {
+  margin: 0;
+  vertical-align: 0;
+}
+
+.sim-month {
+  font-size: 12px;
+}
+
+.sim-status .obs-tier-badge {
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.sim-status .obs-speed {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.sim-status .obs-speed .segmented button {
+  flex: none;
+  min-width: 38px;
+  height: 30px;
+  padding: 0 8px;
+}
+
+.sim-status .obs-speed .obs-error {
+  font-size: 12px;
+}
+
+.observer-panel.obs-dock {
+  position: relative;
+  width: auto;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  padding: 0;
+  overflow: visible;
+  border-left: 0;
+  border-top: 1px solid var(--border);
+  transition: none;
+  box-shadow: 0 -8px 24px rgba(0, 0, 0, 0.25);
+  z-index: 2;
+}
+
+.obs-dock.collapsed {
+  height: auto;
+}
+
+.dock-resize {
+  position: absolute;
+  top: -5px;
+  left: 0;
+  right: 0;
+  height: 10px;
+  cursor: ns-resize;
+  z-index: 3;
+}
+
+.dock-resize::after {
+  content: '';
+  position: absolute;
+  top: 3px;
+  left: 50%;
+  width: 44px;
+  height: 4px;
+  margin-left: -22px;
+  border-radius: 2px;
+  background: var(--border);
+  transition: background 0.15s ease;
+}
+
+.dock-resize:hover::after {
+  background: var(--accent);
+}
+
+.obs-dock.collapsed .dock-resize {
+  cursor: default;
+}
+
+.dock-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 10px 0 6px;
+  min-height: 40px;
+  border-bottom: 1px solid var(--border);
+}
+
+.obs-dock.collapsed .dock-bar {
+  border-bottom: 0;
+}
+
+.dock-bar .obs-tabs {
+  border-bottom: 0;
+  flex: none;
+  align-self: stretch;
+  align-items: stretch;
+}
+
+.observer-panel.obs-dock .obs-tabs button {
+  flex: none;
+  height: auto;
+  padding: 0 16px;
+  border-radius: 0;
+}
+
+.dock-hint {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dock-toggle {
+  margin-left: auto;
+  width: 32px;
+  height: 28px;
+  padding: 0;
+  font-size: 14px;
+}
+
+.dock-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+
+.dock-inspector {
+  width: 400px;
+  flex: none;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 12px 14px;
+  border-right: 1px solid var(--border);
+}
+
+/* Cards flow into as many columns as the width allows. */
+.dock-content.obs-tabpanel {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 12px 16px;
+  display: block;
+  columns: 340px;
+  column-gap: 22px;
+}
+
+/* Cards are inline-level so a column never splits one in two (Chrome won't
+   keep a grid container whole with break-inside alone). */
+.dock-content > *,
+.dock-content .civ > * {
+  break-inside: avoid;
+  margin: 0 0 20px;
+  width: 100%;
+  vertical-align: top;
+}
+
+.dock-content > :is(.obs-section, .obs-stats),
+.dock-content .civ > .obs-section {
+  display: inline-grid;
+}
+
+.dock-content > :not(.obs-section, .obs-stats, .civ, p) {
+  display: inline-block;
+}
+
+.dock-content > p {
+  column-span: all;
+}
+
+/* Sections inside wrappers become cards of their own. */
+.dock-content .civ {
+  display: contents;
+}
+
+/* The periodic table needs its 18 columns side by side. */
+.dock-content.dock-elements {
+  columns: auto;
+}
+
+.dock-content.dock-elements .pt {
+  max-width: 980px;
+}

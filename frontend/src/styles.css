@@ -346,6 +346,10 @@ button:focus-visible,
 .map-title {
   font-size: 16px;
   padding: 0 6px;
+  max-width: 22ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .name-input {
@@ -387,6 +391,11 @@ button:focus-visible,
   flex: 1;
   display: flex;
   min-height: 0;
+}
+
+/* Watching: the map takes the full width, the observer panel docks below it. */
+.mode-watch .workspace {
+  flex-direction: column;
 }
 
 /* Side panels (palette, observer) scroll on their own instead of growing the page. */
@@ -675,5 +684,22 @@ button:focus-visible,
 @container stage (max-width: 560px) {
   .geo-legend {
     max-height: max(30px, calc(100% - 52px - 214px));
+  }
+}
+
+/* Narrower screens: keep the toolbar on one line so the map keeps its height. */
+@media (max-width: 1400px) {
+  .stream-text,
+  .sim-month,
+  .toolbar .btn-label {
+    display: none;
+  }
+
+  .toolbar {
+    gap: 8px;
+  }
+
+  .map-title {
+    max-width: 14ch;
   }
 }
