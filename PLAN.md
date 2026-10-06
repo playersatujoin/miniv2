@@ -320,17 +320,17 @@ Laporan A/B (16 dunia × 900 tahun per konfigurasi; tanpa manusia 8 × 1.800 tah
 | Kriteria penerimaan | Hasil |
 | --- | --- |
 | Tanpa manusia, hewan berosilasi tapi bertahan ≥ 4 jam di 8/8 seed | ◐ Rusa dan babi hutan ada 100% waktu di 8/8. Ayam hutan (95%) dan kerbau (76%) kadang punah lalu datang lagi. Harimau hanya 49%: pulau ini cuma menampung 2–5 ekor, sehingga harimau hidup sebagai populasi yang punah lalu datang lagi (`TestWildlifePersists -long` kini menguji keberadaan sepanjang waktu, bukan satu titik di akhir) |
-| Perburuan berlebihan menyebabkan kepunahan lokal di sebagian seed | ✗ Perburuan hampir tidak terjadi (16 dunia × 900 tahun: 10 rusa, 16 babi, 1 kerbau). Hewan lari sebelum terpukul, dan tangan kosong butuh sekitar 5 pukulan. Perlu teknik berburu yang lebih realistis |
-| Pertanian menaikkan daya dukung (A/B) | ✓ Puncak median 175 lawan 54; populasi akhir lebih tinggi di 11/16 dunia; ladang memberi 50% energi |
-| Kemarau panjang terlihat sebagai lonjakan kematian karena kelaparan | ✓ Dibanding tahun netral di sekitarnya, kelaparan setahun sesudah El Niño ×1,29 pada petani dan ×1,49 pada pemburu-peramu (La Niña ×1,07). Petak layu di tahun El Niño, dan panen tahun berikutnya −17% |
-| Tidak ada batas populasi keras yang aktif dalam kondisi normal | ✓ Batas teknis tidak tersentuh sekali pun (on dan no-farming). Tanpa iklim, populasi petani 2,4× lebih besar dan mencapai batas itu |
-| Performa ≤ 1 core pada 20× | ✓ Median 0,59 ms/tick (≈ 24% satu core), tertinggi 2,29 ms/tick. Dunia petani berpenduduk ≈ 1.000 (pada putaran soak lain) butuh 4–6 ms/tick |
+| Perburuan berlebihan menyebabkan kepunahan lokal di sebagian seed | ✗ Sejak Fase 2b (jerat, mengendap, buruan terluka melambat, tombak) tertangkap 986 rusa dan 361 babi per 16 dunia × 900 tahun, tapi rusa dan babi tetap ada 100% waktu. Daging membusuk cepat dan satu rusa setara makanan sekitar 12 tahun, jadi perburuan tak pernah jadi sumber pangan utama (< 0,5%) |
+| Pertanian menaikkan daya dukung (A/B) | ✓ Puncak median 100 lawan 56, populasi akhir 59 lawan 21; lebih tinggi di 12/16 dunia; ladang memberi 37% energi (60–90% di dunia yang pertaniannya berkembang penuh) |
+| Kemarau panjang terlihat sebagai lonjakan kematian karena kelaparan | ✓ Dibanding tahun netral di sekitarnya, kelaparan setahun sesudah El Niño ×1,23 pada petani dan ×1,42 pada pemburu-peramu (La Niña ×1,09). Petak layu di tahun El Niño (1,07 lawan 0,02 per tahun), dan panen tahun berikutnya −18% |
+| Tidak ada batas populasi keras yang aktif dalam kondisi normal | ✓ Batas teknis tidak tersentuh sekali pun. Tanpa iklim, populasi petani 2× lebih besar |
+| Performa ≤ 1 core pada 20× | ◐ Median 0,33 ms/tick (≈ 13% satu core); dunia petani berpenduduk ≈ 1.000 butuh 6,5 ms/tick |
 
 Temuan:
 - **Pertanian gagal karena perilaku, bukan angka hasil panen.** Hasil panen masuk lumbung dan tidak pernah ditanam lagi, dan benih di tangan ikut dimakan. Aturan rumah tangga "simpan benih" menaikkan porsi ladang dari ≈ 1% menjadi 53%.
 - **Air laut yang bisa diminum** membuat seluruh pulau layak huni, dengan daya dukung ≈ 1.500 pemburu-peramu. Menurunkan pangan liar bukan jalan keluar: laju tumbuh kembali ×0,8 saja sudah menurunkan kelangsungan pendiri dari 30/32 ke 24/32. Air tawar yang realistis menurunkan daya dukung tanpa melukai pendiri, dan membuat permukiman tumbuh di tepi sungai.
-- **Rasio kelamin 152** disebabkan tubuh perempuan yang dihitung sebesar laki-laki, ditambah biaya hamil dan menyusui. Dengan 72% kebutuhan laki-laki sejak pubertas (Pontzer dkk. 2012), rasionya menjadi 73–104 (pemburu-peramu cenderung ke bawah).
-- **Petani lebih subur** (TFR 8,4 lawan 5,3), seperti pada transisi demografi Neolitikum.
+- **Rasio kelamin 152** disebabkan tubuh perempuan yang dihitung sebesar laki-laki, ditambah biaya hamil dan menyusui. Dengan 78% kebutuhan laki-laki sejak pubertas (di antara rasio energi 71% dan massa tubuh 84% suku Hadza, Pontzer dkk. 2012), rasionya menjadi 100–114.
+- **Petani lebih subur dan lebih timpang** (TFR 8,9 lawan 5,5; Gini 0,50 lawan 0,31), seperti pada transisi demografi Neolitikum dan data kekayaan masyarakat kecil.
 - **Determinisme:** seed yang sama menghasilkan dunia yang identik, juga setelah disimpan dan dimuat ulang di tengah jalan (`TestSameSeedAndSaveRestoreReplayExactly`). Tes ini menemukan dua bug yang sudah diperbaiki: bayi yang digendong kadang diletakkan di atas air, lalu dipindah saat dimuat ulang; dan jeda antar-peristiwa tidak ikut disimpan.
 
 Penyesuaian di luar rencana:
@@ -341,7 +341,7 @@ Penyesuaian di luar rencana:
 - Perbandingan keahlian antar-tetangga lewat array: `teacherOrStudentNear` turun dari 30% ke ≈ 1% waktu CPU.
 
 Masalah yang diwariskan:
-- **Ke Fase 2b:** teknik berburu (mengendap, tombak, berburu berkelompok) supaya kriteria perburuan bisa diuji; faktor kebutuhan perempuan (kemungkinan rasio massa tubuh ≈ 0,84, bukan 0,72).
+- **Fase 2b (sudah):** jerat, mengendap, buruan terluka melambat, tombak lebih mematikan, dan faktor perempuan 78%. Kriteria perburuan tetap belum terpenuhi karena energetika daging (lihat di atas). Yang dicoba lalu dibuang: memaksa pemburu berjalan pelan, refleks berburu yang lebih luas, dan keinginan membuat senjata. Itu menambah buruan tanpa menambah makanan, dan menurunkan kelangsungan dunia.
 - **Ke Fase 3:**
   - Kematian dewasa hampir seluruhnya karena lapar, dengan laju ≈ 5% per tahun di semua umur, sehingga modus usia kematian dewasa 18 tahun dan e15 16–23 tahun.
   - Kematian bayi 0, dan peluang kembar 20% (nyata 1–2%).

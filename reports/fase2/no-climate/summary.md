@@ -1,6 +1,6 @@
 # Laporan soak — Fase 2 — tanpa iklim
 
-- Dibuat: 2026-10-06 11:00:43
+- Dibuat: 2026-10-06 12:14:26
 - Peta: 128×128, seed peta 1337 · seed dunia: 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16
 - Durasi: 120 menit simulasi per dunia (≈ 900 tahun; 1 tahun = 8 detik simulasi)
 - Aturan dimatikan: climate
@@ -10,38 +10,38 @@
 
 | Seed | Era 1 bertahan | Era | Populasi | Gen. maks | Zaman | Unsur | Rumah | e0 | l15 | e15 | TFR | Jarak lahir | Ibu pertama | Modus mati dewasa | Gini | Pembunuhan /100rb | ms/tick |
 | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| 1 | 115 m | 2 | 20 | 3 | 0 | 2 | 0 | 34,5 | 0,67 | 30,2 | 9,3 | 3,4 | 16,2 | – | 0,38 | 0 | 0,12 |
-| 2 | 120 m (utuh) | 1 | 16 | 38 | 0 | 3 | 3 | 20,3 | 0,49 | 17,2 | 8,4 | 3,8 | 18,4 | 16 | 0,25 | 1626 | 0,37 |
-| 3 | 120 m (utuh) | 1 | 543 | 41 | 0 | 5 | 5 | 19,2 | 0,51 | 13,2 | 12,5 | 3,3 | 16,4 | 18 | 0,49 | 332 | 2,11 |
-| 4 | 120 m (utuh) | 1 | 162 | 45 | 0 | 2 | 4 | 19,8 | 0,43 | 16,1 | 13,1 | 3,1 | 16,4 | 16 | 0,54 | 0 | 1,05 |
-| 5 | 22 m | 4 | 1269 | 23 | 0 | 2 | 6 | 20,2 | 0,54 | 12,8 | 11,9 | 3,2 | 16,1 | 18 | 0,57 | 8 | 3,41 |
-| 6 | 120 m (utuh) | 1 | 300 | 45 | 1 | 6 | 2 | 19,8 | 0,49 | 13,6 | 8,9 | 3,6 | 16,5 | 18 | 0,59 | 263 | 1,49 |
-| 7 | 11 m | 2 | 144 | 41 | 0 | 4 | 2 | 18,8 | 0,48 | 12,6 | 12,1 | 3,2 | 16,5 | 18 | 0,51 | 13 | 0,63 |
-| 8 | 16 m | 3 | 1074 | 32 | 0 | 5 | 8 | 19,0 | 0,48 | 13,0 | 11,7 | 3,2 | 16,3 | 18 | 0,61 | 124 | 5,00 |
-| 9 | 10 m | 2 | 83 | 38 | 0 | 1 | 4 | 20,0 | 0,58 | 11,6 | 6,8 | 4,9 | 17,5 | 18 | 0,57 | 119 | 0,40 |
-| 10 | 120 m (utuh) | 1 | 1096 | 46 | 1 | 6 | 12 | 18,2 | 0,35 | 16,0 | 12,4 | 3,1 | 16,4 | 18 | 0,55 | 203 | 12,25 |
-| 11 | 13 m | 2 | 772 | 43 | 0 | 2 | 6 | 18,8 | 0,52 | 11,4 | 10,5 | 3,4 | 16,5 | 18 | 0,52 | 115 | 3,61 |
-| 12 | 120 m (utuh) | 1 | 1315 | 46 | 1 | 6 | 8 | 18,9 | 0,47 | 12,4 | 12,3 | 3,2 | 16,1 | 18 | 0,54 | 431 | 8,27 |
-| 13 | 19 m | 3 | 74 | 29 | 0 | 3 | 5 | 21,1 | 0,53 | 16,0 | 7,4 | 4,5 | 18,6 | 20 | 0,50 | 262 | 0,34 |
-| 14 | 16 m | 2 | 257 | 42 | 1 | 4 | 3 | 18,0 | 0,43 | 11,4 | 13,0 | 3,2 | 16,3 | 16 | 0,48 | 143 | 1,60 |
-| 15 | 120 m (utuh) | 1 | 1136 | 47 | 1 | 6 | 9 | 18,5 | 0,38 | 14,9 | 12,0 | 3,1 | 16,6 | 16 | 0,57 | 92 | 8,75 |
-| 16 | 120 m (utuh) | 1 | 290 | 47 | 1 | 3 | 3 | 19,0 | 0,45 | 13,9 | 12,3 | 3,2 | 16,2 | 18 | 0,46 | 51 | 2,56 |
-| **Median** | 118 m | | 295 | 42 | 0 | 4 | 4 | 19,1 | 0,49 | 13,4 | 11,9 | 3,2 | 16,4 | 18 | 0,53 | 122 | 1,86 |
+| 1 | 120 m (utuh) | 1 | 40 | 41 | 0 | 2 | 2 | 19,4 | 0,42 | 14,9 | 12,1 | 3,9 | 17,2 | 18 | 0,26 | 55 | 0,21 |
+| 2 | 25 m | 2 | 64 | 30 | 0 | 1 | 4 | 33,0 | 0,65 | 29,4 | 4,1 | 6,4 | 17,9 | 16 | 0,49 | 73 | 0,26 |
+| 3 | 120 m (utuh) | 1 | 38 | 36 | 0 | 1 | 4 | 32,1 | 0,53 | 36,5 | 6,4 | 3,9 | 19,7 | 68 | 0,64 | 0 | 0,36 |
+| 4 | 120 m (utuh) | 1 | 130 | 44 | 0 | 2 | 1 | 19,0 | 0,54 | 11,4 | 11,9 | 3,4 | 16,2 | 18 | 0,40 | 64 | 1,25 |
+| 5 | 120 m (utuh) | 1 | 137 | 39 | 0 | 2 | 1 | 19,9 | 0,51 | 13,3 | 12,8 | 3,3 | 15,9 | 18 | 0,47 | 78 | 0,88 |
+| 6 | 120 m (utuh) | 1 | 779 | 44 | 1 | 4 | 12 | 20,2 | 0,55 | 12,8 | 11,7 | 3,2 | 16,4 | 18 | 0,53 | 453 | 2,36 |
+| 7 | 11 m | 2 | 44 | 32 | 0 | 1 | 5 | 21,7 | 0,51 | 17,5 | 6,1 | 4,4 | 21,2 | 16 | 0,51 | 229 | 0,35 |
+| 8 | 9 m | 3 | 1055 | 40 | 1 | 5 | 8 | 18,9 | 0,42 | 14,8 | 12,4 | 3,2 | 16,1 | 18 | 0,60 | 114 | 6,78 |
+| 9 | 120 m (utuh) | 1 | 1118 | 44 | 0 | 5 | 10 | 19,7 | 0,50 | 13,3 | 12,8 | 3,1 | 16,1 | 18 | 0,54 | 410 | 8,32 |
+| 10 | 120 m (utuh) | 1 | 359 | 44 | 0 | 4 | 1 | 20,7 | 0,54 | 14,0 | 12,8 | 3,1 | 16,1 | 18 | 0,52 | 110 | 2,43 |
+| 11 | 49 m | 3 | 504 | 23 | 0 | 2 | 2 | 21,1 | 0,52 | 16,1 | 11,6 | 3,4 | 16,6 | 18 | 0,47 | 219 | 0,94 |
+| 12 | 78 m | 2 | 30 | 15 | 0 | 3 | 3 | 21,2 | 0,52 | 15,6 | 9,3 | 3,8 | 16,6 | 16 | 0,22 | 0 | 0,21 |
+| 13 | 27 m | 2 | 728 | 35 | 0 | 5 | 3 | 19,1 | 0,48 | 13,3 | 12,0 | 3,2 | 16,3 | 16 | 0,53 | 49 | 3,50 |
+| 14 | 94 m | 3 | 11 | 3 | 0 | 2 | 1 | 26,1 | 0,44 | 30,8 | 6,8 | 3,8 | – | – | 0,23 | 0 | 0,14 |
+| 15 | 10 m | 6 | 1 | 0 | 0 | 2 | 0 | – | – | – | – | – | – | – | – | – | 0,13 |
+| 16 | 18 m | 2 | 1138 | 41 | 0 | 5 | 13 | 19,1 | 0,39 | 16,2 | 12,1 | 3,2 | 16,2 | 16 | 0,56 | 186 | 7,86 |
+| **Median** | 86 m | | 134 | 38 | 0 | 2 | 3 | 20,2 | 0,51 | 14,9 | 11,9 | 3,4 | 16,4 | 18 | 0,51 | 78 | 0,91 |
 
-Era 1 (keturunan Adam & Hawa pertama) bertahan sampai akhir di **8 dari 16** dunia (selang kepercayaan 95%: 28–72%). Hasil per dunia sangat dipengaruhi kebetulan, jadi bandingkan konfigurasi dengan banyak seed.
+Era 1 (keturunan Adam & Hawa pertama) bertahan sampai akhir di **7 dari 16** dunia (selang kepercayaan 95%: 23–67%). Hasil per dunia sangat dipengaruhi kebetulan, jadi bandingkan konfigurasi dengan banyak seed.
 
 ## Dibanding acuan pra-modern
 
 | Indikator | Median simulasi | Acuan | Status | Sumber |
 | --- | ---: | ---: | --- | --- |
-| Harapan hidup saat lahir (e0) | 19,1 tahun | 21–37 | ↓ di bawah | Gurven & Kaplan (2007), pemburu-peramu |
-| Peluang hidup sampai umur 15 (l15) | 0,49 | 0,44–0,73 | ✓ dalam rentang | Gurven & Kaplan (2007), Tabel 2–3 — rata-rata 0,57 |
-| Sisa harapan hidup pada umur 15 (e15) | 13,4 tahun | 28–43 | ↓ di bawah | Gurven & Kaplan (2007), Tabel 3 |
+| Harapan hidup saat lahir (e0) | 20,2 tahun | 21–37 | ↓ di bawah | Gurven & Kaplan (2007), pemburu-peramu |
+| Peluang hidup sampai umur 15 (l15) | 0,51 | 0,44–0,73 | ✓ dalam rentang | Gurven & Kaplan (2007), Tabel 2–3 — rata-rata 0,57 |
+| Sisa harapan hidup pada umur 15 (e15) | 14,9 tahun | 28–43 | ↓ di bawah | Gurven & Kaplan (2007), Tabel 3 |
 | Modus usia kematian dewasa | 18 tahun | 68–78 | ↓ di bawah | Gurven & Kaplan (2007), Tabel 4 |
 | Angka kelahiran total (TFR) | 11,9 anak | 5–7 | ↑ di atas | Kompilasi 5 populasi (Ache, Agta, Hadza, Hiwi, !Kung); arXiv:2601.13442 — rata-rata 6,2; sumber sekunder |
-| Jarak antar-kelahiran | 3,2 tahun | 2,8–3,3 | ✓ dalam rentang | Kompilasi 5 populasi (Ache, Agta, Hadza, Hiwi, !Kung); arXiv:2601.13442 — rata-rata 3,1 tahun |
+| Jarak antar-kelahiran | 3,4 tahun | 2,8–3,3 | ↑ di atas | Kompilasi 5 populasi (Ache, Agta, Hadza, Hiwi, !Kung); arXiv:2601.13442 — rata-rata 3,1 tahun |
 | Umur ibu saat anak pertama | 16,4 tahun | 18–20 | ↓ di bawah | Kompilasi yang sama; Baka: rata-rata 18 tahun (Ramirez Rozzi 2018) |
-| Ketimpangan kekayaan (Gini) | 0,53 | 0,21–0,29 | ↑ di atas | Borgerhoff Mulder dkk. (2009), Tabel 2 — pemburu-peramu 0,25 ± 0,04; simulasi hanya menghitung kekayaan material |
+| Ketimpangan kekayaan (Gini) | 0,51 | 0,21–0,29 | ↑ di atas | Borgerhoff Mulder dkk. (2009), Tabel 2 — pemburu-peramu 0,25 ± 0,04; simulasi hanya menghitung kekayaan material |
 
 Keterangan: ✓ dalam rentang · ↑ di atas · ↓ di bawah · – belum cukup data.
 
@@ -50,18 +50,18 @@ Keterangan: ✓ dalam rentang · ↑ di atas · ↓ di bawah · – belum cukup 
 | Indikator | Median simulasi |
 | --- | ---: |
 | Kematian bayi (q0) | 0,000 |
-| Rasio kelamin (♂ per 100 ♀) | 104 |
-| Anggota per rumah | 65,7 |
-| Pembunuhan per 100.000 tahun-orang | 122 |
+| Rasio kelamin (♂ per 100 ♀) | 111 |
+| Anggota per rumah | 31,5 |
+| Pembunuhan per 100.000 tahun-orang | 78 |
 
 ## Penyebab kematian (semua dunia, 50 tahun terakhir)
 
 | Penyebab | Kematian | Bagian |
 | --- | ---: | ---: |
-| Kelaparan | 18089 | 83% |
-| Kehausan | 2007 | 9% |
-| Usia tua | 946 | 4% |
-| Dibunuh | 749 | 3% |
+| Kelaparan | 12075 | 81% |
+| Kehausan | 1506 | 10% |
+| Usia tua | 678 | 5% |
+| Dibunuh | 665 | 4% |
 | Diterkam hewan | 0 | 0% |
 
 Catatan: simulasi belum punya penyakit (Fase 3), sedangkan di masyarakat nyata penyakit menyebabkan lebih dari separuh kematian. Perbedaan ini temuan, bukan galat.
@@ -70,23 +70,23 @@ Catatan: simulasi belum punya penyakit (Fase 3), sedangkan di masyarakat nyata p
 
 | Seed | Generasi saat Zaman Logam | Generasi saat Zaman Kimia | Zaman akhir | Pengetahuan hilang | Neuron (rata-rata) | Keahlian dewasa |
 | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| 1 | – | – | 0 | 16 | 20,3 | 0,03 |
-| 2 | – | – | 0 | 17 | 21,0 | 0,88 |
-| 3 | – | – | 0 | 11 | 20,5 | 0,94 |
-| 4 | – | – | 0 | 6 | 18,7 | 0,92 |
-| 5 | – | – | 0 | 21 | 20,1 | 0,93 |
-| 6 | 14 | – | 1 | 28 | 19,4 | 0,95 |
-| 7 | – | – | 0 | 20 | 19,3 | 0,97 |
-| 8 | – | – | 0 | 21 | 19,8 | 0,91 |
-| 9 | – | – | 0 | 14 | 20,3 | 0,93 |
-| 10 | 6 | – | 1 | 3 | 19,9 | 0,91 |
-| 11 | – | – | 0 | 10 | 21,4 | 0,92 |
-| 12 | 7 | – | 1 | 26 | 19,4 | 0,92 |
-| 13 | – | – | 0 | 18 | 20,0 | 0,94 |
-| 14 | 4 | – | 1 | 15 | 20,2 | 0,92 |
-| 15 | 8 | – | 1 | 4 | 18,9 | 0,92 |
-| 16 | 7 | – | 1 | 7 | 19,2 | 0,95 |
-| **Median** | 7 | – | 0 | 16 | 19,9 | 0,92 |
+| 1 | – | – | 0 | 12 | 20,8 | 0,96 |
+| 2 | – | – | 0 | 14 | 19,7 | 0,29 |
+| 3 | – | – | 0 | 14 | 21,8 | 0,65 |
+| 4 | – | – | 0 | 17 | 20,2 | 0,93 |
+| 5 | – | – | 0 | 17 | 21,5 | 0,94 |
+| 6 | 19 | – | 1 | 28 | 19,6 | 0,94 |
+| 7 | – | – | 0 | 14 | 18,3 | 0,57 |
+| 8 | 8 | – | 1 | 23 | 20,8 | 0,89 |
+| 9 | – | – | 0 | 15 | 20,3 | 0,93 |
+| 10 | – | – | 0 | 9 | 19,1 | 0,95 |
+| 11 | – | – | 0 | 18 | 20,4 | 0,89 |
+| 12 | – | – | 0 | 21 | 19,7 | 0,89 |
+| 13 | – | – | 0 | 8 | 18,7 | 0,93 |
+| 14 | – | – | 0 | 22 | 18,7 | 0,07 |
+| 15 | – | – | 0 | 30 | 20,0 | 0,31 |
+| 16 | – | – | 0 | 25 | 20,5 | 0,91 |
+| **Median** | 14 | – | 0 | 17 | 20,1 | 0,90 |
 
 Generasi dihitung sebagai generasi tertinggi yang hidup saat zaman itu pertama tercapai (– = tidak tercapai).
 
@@ -94,75 +94,75 @@ Generasi dihitung sebagai generasi tertinggi yang hidup saat zaman itu pertama t
 
 | Umur | Keahlian | Orang (total) |
 | --- | ---: | ---: |
-| 0–14 | 0,92 | 5670 |
-| 15–29 | 0,93 | 1663 |
-| 30–44 | 0,93 | 664 |
-| 45–59 | 0,93 | 394 |
-| 60+ | 0,92 | 160 |
+| 0–14 | 0,90 | 4053 |
+| 15–29 | 0,92 | 1217 |
+| 30–44 | 0,92 | 460 |
+| 45–59 | 0,91 | 291 |
+| 60+ | 0,93 | 155 |
 
 ### Ukuran otak menurut generasi (rata-rata neuron tersembunyi, semua dunia)
 
 | Generasi rata-rata | Neuron |
 | --- | ---: |
-| 0–9 | 20,1 |
+| 0–9 | 19,9 |
 | 10–19 | 20,0 |
-| 20–29 | 20,1 |
-| 30–39 | 20,0 |
-| 40–49 | 19,3 |
+| 20–29 | 20,0 |
+| 30–39 | 20,4 |
+| 40–49 | 19,8 |
 
 ## Ekologi
 
 | Seed | Populasi puncak | Batas teknis tersentuh | Pertanian (menit) | Petak maks | Hutan tersisa | Hewan akhir (Rusa / Babi Hutan / Ayam Hutan / Kerbau Liar / Harimau) | Ternak | Punah lokal / datang lagi |
 | ---: | ---: | ---: | ---: | ---: | ---: | --- | ---: | ---: |
-| 1 | 40 | 0 | 24 | 14 | 0,99 | 168 / 200 / 16 / 1 / 0 | 0 | 49 / 48 |
-| 2 | 58 | 0 | 30 | 54 | 0,99 | 150 / 188 / 38 / 40 / 5 | 0 | 23 / 23 |
-| 3 | 643 | 0 | 11 | 119 | 0,96 | 182 / 167 / 37 / 0 / 6 | 0 | 37 / 36 |
-| 4 | 264 | 0 | 18 | 33 | 0,98 | 186 / 206 / 14 / 3 / 1 | 0 | 50 / 50 |
-| 5 | 1352 | 0 | 15 | 172 | 0,92 | 120 / 192 / 66 / 51 / 2 | 0 | 25 / 25 |
-| 6 | 438 | 0 | 17 | 106 | 0,96 | 100 / 153 / 53 / 96 / 3 | 0 | 24 / 24 |
-| 7 | 168 | 0 | 2 | 38 | 0,99 | 138 / 139 / 59 / 47 / 5 | 0 | 21 / 21 |
-| 8 | 1144 | 0 | 4 | 174 | 0,94 | 180 / 145 / 11 / 0 / 0 | 0 | 47 / 45 |
-| 9 | 117 | 0 | 26 | 40 | 0,98 | 139 / 133 / 28 / 35 / 0 | 0 | 31 / 30 |
-| 10 | 1401 | 0 | 8 | 184 | 0,95 | 120 / 147 / 25 / 20 / 3 | 0 | 42 / 42 |
-| 11 | 993 | 0 | 27 | 171 | 0,94 | 179 / 97 / 13 / 1 / 0 | 0 | 48 / 47 |
-| 12 | 1452 | 36746 | 11 | 227 | 0,94 | 138 / 149 / 12 / 46 / 0 | 0 | 27 / 26 |
-| 13 | 128 | 0 | 42 | 84 | 0,98 | 152 / 134 / 11 / 16 / 0 | 0 | 33 / 32 |
-| 14 | 315 | 0 | 3 | 51 | 0,99 | 167 / 132 / 0 / 10 / 0 | 0 | 42 / 40 |
-| 15 | 1332 | 0 | 4 | 173 | 0,96 | 198 / 138 / 0 / 0 / 0 | 0 | 35 / 32 |
-| 16 | 417 | 0 | 5 | 71 | 0,97 | 155 / 133 / 50 / 30 / 4 | 0 | 40 / 40 |
-| **Median** | 428 | 0 | 13 | 95 | 0,97 | | | 36 |
+| 1 | 73 | 0 | 23 | 28 | 0,99 | 187 / 179 / 69 / 1 / 2 | 0 | 35 / 35 |
+| 2 | 87 | 0 | 9 | 33 | 0,98 | 154 / 183 / 38 / 29 / 1 | 0 | 16 / 16 |
+| 3 | 67 | 0 | 29 | 11 | 0,99 | 168 / 207 / 10 / 35 / 0 | 7 | 23 / 22 |
+| 4 | 149 | 0 | 22 | 37 | 0,98 | 158 / 211 / 7 / 16 / 0 | 0 | 43 / 42 |
+| 5 | 147 | 0 | 54 | 18 | 0,98 | 188 / 150 / 1 / 1 / 0 | 0 | 34 / 33 |
+| 6 | 779 | 0 | 27 | 170 | 0,94 | 133 / 194 / 47 / 15 / 4 | 0 | 28 / 28 |
+| 7 | 59 | 0 | 2 | 7 | 0,99 | 144 / 125 / 7 / 0 / 6 | 0 | 41 / 40 |
+| 8 | 1154 | 0 | 3 | 173 | 0,96 | 139 / 180 / 0 / 69 / 5 | 0 | 36 / 35 |
+| 9 | 1285 | 0 | 7 | 186 | 0,95 | 178 / 155 / 8 / 6 / 0 | 0 | 25 / 24 |
+| 10 | 420 | 0 | 37 | 59 | 0,98 | 196 / 164 / 24 / 0 / 0 | 0 | 31 / 29 |
+| 11 | 504 | 0 | 27 | 122 | 0,97 | 128 / 96 / 37 / 55 / 0 | 0 | 43 / 42 |
+| 12 | 70 | 0 | 21 | 28 | 0,99 | 136 / 192 / 13 / 23 / 0 | 0 | 36 / 35 |
+| 13 | 894 | 0 | 41 | 168 | 0,95 | 138 / 141 / 20 / 53 / 2 | 0 | 27 / 27 |
+| 14 | 35 | 0 | 4 | 12 | 0,99 | 161 / 113 / 55 / 0 / 0 | 0 | 31 / 29 |
+| 15 | 33 | 0 | 4 | 23 | 1,00 | 201 / 144 / 0 / 4 / 3 | 0 | 34 / 33 |
+| 16 | 1265 | 0 | 12 | 173 | 0,95 | 179 / 189 / 8 / 31 / 0 | 1 | 31 / 30 |
+| **Median** | 148 | 0 | 22 | 35 | 0,98 | | | 32 |
 
 ### Keberadaan satwa (bagian waktu spesies itu ada di pulau)
 
 | Spesies | Median | Terendah | Dunia yang masih punya di akhir |
 | --- | ---: | ---: | ---: |
 | Rusa | 100% | 100% | 16/16 |
-| Babi Hutan | 100% | 98% | 16/16 |
-| Ayam Hutan | 92% | 84% | 14/16 |
-| Kerbau Liar | 82% | 59% | 13/16 |
-| Harimau | 55% | 43% | 8/16 |
+| Babi Hutan | 100% | 100% | 16/16 |
+| Ayam Hutan | 92% | 62% | 14/16 |
+| Kerbau Liar | 96% | 60% | 13/16 |
+| Harimau | 51% | 42% | 7/16 |
 
 ### Asal pangan (bagian energi yang dimakan, 100 tahun terakhir)
 
 | Seed | Liar | Ladang | Ikan | Daging | Panen per orang per tahun |
 | ---: | ---: | ---: | ---: | ---: | ---: |
-| 1 | 100% | 0% | 0% | 0% | 0,84 |
-| 2 | 79% | 21% | 0% | 0% | 0,60 |
-| 3 | 14% | 86% | 0% | 0% | 0,43 |
-| 4 | 19% | 80% | 1% | 0% | 0,35 |
-| 5 | 15% | 84% | 0% | 0% | 0,31 |
-| 6 | 27% | 73% | 0% | 0% | 0,54 |
-| 7 | 12% | 88% | 0% | 0% | 0,77 |
-| 8 | 14% | 86% | 0% | 0% | 0,35 |
-| 9 | 40% | 60% | 0% | 0% | 0,57 |
-| 10 | 14% | 86% | 0% | 0% | 0,35 |
-| 11 | 14% | 86% | 0% | 0% | 0,39 |
-| 12 | 12% | 88% | 0% | 0% | 0,28 |
-| 13 | 72% | 28% | 0% | 0% | 0,56 |
-| 14 | 14% | 83% | 2% | 0% | 0,26 |
-| 15 | 11% | 89% | 0% | 0% | 0,31 |
-| 16 | 19% | 80% | 1% | 0% | 0,35 |
-| **Median** | | 84% | | | |
+| 1 | 60% | 35% | 4% | 2% | 0,51 |
+| 2 | 100% | 0% | 0% | 0% | 0,00 |
+| 3 | 94% | 5% | 0% | 0% | 0,15 |
+| 4 | 24% | 75% | 1% | 0% | 0,32 |
+| 5 | 26% | 72% | 2% | 0% | 0,31 |
+| 6 | 16% | 83% | 0% | 1% | 0,50 |
+| 7 | 99% | 0% | 0% | 1% | 0,00 |
+| 8 | 11% | 88% | 0% | 1% | 0,35 |
+| 9 | 13% | 87% | 0% | 1% | 0,31 |
+| 10 | 18% | 82% | 0% | 0% | 0,31 |
+| 11 | 20% | 80% | 0% | 0% | 0,42 |
+| 12 | 51% | 49% | 0% | 0% | 0,69 |
+| 13 | 13% | 86% | 0% | 1% | 0,38 |
+| 14 | 100% | 0% | 0% | 0% | 0,00 |
+| 15 | 100% | 0% | 0% | 0% | 0,00 |
+| 16 | 13% | 86% | 0% | 1% | 0,34 |
+| **Median** | | 73% | | | |
 
 ### Iklim dan kelaparan
 
@@ -171,7 +171,7 @@ Tahun dengan ≥ 20 penduduk, semua dunia digabung. Kelaparan dan kelahiran per 
 | Tahun | Jumlah tahun | Mati kelaparan | Mati kelaparan tahun berikutnya | Kelahiran | Panen per 100 orang |
 | --- | ---: | ---: | ---: | ---: | ---: |
 | El Niño | 0 | – | – | – | – |
-| Netral | 10615 | 40,2 | 40,2 | 51,2 | 39,1 |
+| Netral | 9626 | 38,2 | 38,2 | 50,2 | 38,8 |
 | La Niña | 0 | – | – | – | – |
 
 Dibanding tahun netral di sekitarnya (± 10 tahun) di dunia yang sama:

@@ -16,45 +16,43 @@
 
 | | on | no-farming | no-climate |
 | --- | ---: | ---: | ---: |
-| Era 1 bertahan sampai akhir | 11/16 (44–86%) | 12/16 (51–90%) | 8/16 (28–72%) |
-| Populasi puncak | **175** | 54 | 428 |
-| Populasi puncak tertinggi | 444 | 153 | 1.452 |
-| Populasi rata-rata seperempat akhir | **93** | 31 | 314 |
-| Dunia dengan populasi akhir lebih tinggi dari no-farming | **11/16** | – | – |
-| Bagian energi dari ladang (100 tahun terakhir) | 50% | 0% | 84% |
-| Pertanian ditemukan (menit) | 14,5 | – | 13 |
-| Batas teknis tersentuh (kehamilan batal) | **0** | 0 | 36.746 |
-| Mati kelaparan per 1.000 orang per tahun | 31 | 25 | 40 |
-| Harapan hidup saat lahir (e0) | 21,5 | 24,0 | 19,1 |
-| Bertahan sampai 15 tahun (l15) | 0,52 | 0,51 | 0,49 |
-| Angka kelahiran total (TFR) | 8,4 | 5,3 | 11,9 |
-| Rasio kelamin (♂ per 100 ♀) | 93 | 73 | 104 |
-| Gini kekayaan | 0,45 | 0,43 | 0,53 |
-| ms/tick median (tertinggi) | 0,59 (2,29) | 0,33 (0,77) | 1,86 (12,25) |
+| Era 1 bertahan sampai akhir | 9/16 (33–77%) | 7/16 (23–67%) | 7/16 (23–67%) |
+| Populasi puncak | **100** | 56 | 148 |
+| Populasi puncak tertinggi | 994 | 120 | 1.285 |
+| Populasi rata-rata seperempat akhir | **59** | 21 | 121 |
+| Dunia dengan populasi akhir lebih tinggi dari no-farming | **12/16** | – | – |
+| Bagian energi dari ladang (100 tahun terakhir) | 37% | 0% | 73% |
+| Pertanian ditemukan (menit) | 16 | – | 21,5 |
+| Batas teknis tersentuh (kehamilan batal) | **0** | 0 | 0 |
+| Mati kelaparan per 1.000 orang per tahun | 35 | 23 | 38 |
+| Harapan hidup saat lahir (e0) | 22,7 | 23,4 | 20,2 |
+| Bertahan sampai 15 tahun (l15) | 0,56 | 0,49 | 0,51 |
+| Angka kelahiran total (TFR) | 8,9 | 5,5 | 11,9 |
+| Rasio kelamin (♂ per 100 ♀) | 114 | 100 | 111 |
+| Gini kekayaan | 0,50 | 0,31 | 0,51 |
+| ms/tick median (tertinggi) | 0,33 (6,51) | 0,33 (0,71) | 0,91 (8,32) |
 
-Angka dalam kurung pada baris era 1 adalah selang kepercayaan 95% (Wilson).
+Angka dalam kurung pada baris era 1 adalah selang kepercayaan 95% (Wilson). Antar-putaran soak dengan 16 dunia, angka seperti era 1 dan populasi puncak bisa bergeser cukup jauh (misalnya era 1 dengan pertanian 9–12/16, puncak 100–214), jadi bandingkan arah dan besarnya, bukan angka persisnya.
 
 ## Apa artinya
 
-1. **Pertanian menaikkan daya dukung sekitar 3×.**
-   - Populasi puncak median 175 lawan 54, dan populasi akhir lebih tinggi di 11 dari 16 dunia.
-   - Di dunia yang pertaniannya berkembang penuh, ladang memberi 60–90% energi, dan populasi mencapai 300–444 orang.
-   - Kelangsungan era 1 tidak berbeda (11/16 lawan 12/16). Pada putaran soak sebelumnya, dengan aturan yang hampir sama, angkanya 12/16 lawan 7/16. Dengan 16 dunia, selisih seperti itu masih kebetulan.
-2. **Petani lebih subur**, sesuai catatan arkeologi.
-   - TFR petani 8,4 lawan 5,3 pada pemburu-peramu. Ini "transisi demografi Neolitikum" (Bocquet-Appel 2011). Angka petani masih di atas data nyata (5–7) karena belum ada penyakit dan peluang kembar masih 20%.
-   - Gini petani sedikit lebih tinggi (0,45 lawan 0,43). Masyarakat pertanian nyata jauh lebih timpang (Borgerhoff Mulder dkk. 2009: pemburu-peramu 0,25, petani 0,48).
-3. **Iklim ikut membatasi populasi.**
-   - Tanpa musim kemarau dan El Niño, ladang selalu cukup air, sehingga populasi petani 2,4× lebih besar dan menyentuh batas teknis (36.746 kehamilan batal).
-   - Dengan iklim, batas itu tidak pernah tersentuh.
+1. **Pertanian menaikkan daya dukung sekitar 2–3×.**
+   - Populasi puncak median 100 lawan 56, populasi akhir 59 lawan 21, dan lebih tinggi di 12 dari 16 dunia.
+   - Di dunia yang pertaniannya berkembang penuh, ladang memberi 60–90% energi, dan populasi mencapai 300–994 orang.
+   - Kelangsungan era 1 tidak berbeda nyata (9/16 lawan 7/16).
+2. **Petani lebih subur dan lebih timpang**, sesuai catatan arkeologi dan antropologi.
+   - TFR petani 8,9 lawan 5,5 pada pemburu-peramu. Ini "transisi demografi Neolitikum" (Bocquet-Appel 2011). Angka petani masih di atas data nyata (5–7) karena belum ada penyakit dan peluang kembar masih 20%.
+   - Gini 0,50 lawan 0,31. Pemburu-peramu nyata sekitar 0,25 dan petani 0,48 (Borgerhoff Mulder dkk. 2009).
+3. **Iklim ikut membatasi populasi.** Tanpa musim kemarau dan El Niño, ladang selalu cukup air, sehingga populasi akhir 2× lebih besar (121 lawan 59) dan puncak tertinggi 1.285.
 4. **El Niño terlihat sebagai lonjakan kelaparan,** dibanding tahun netral ± 10 tahun di dunia yang sama:
 
 | | Tahun El Niño | Tahun sesudahnya | Kejadian dengan lonjakan > 1,5× |
 | --- | ---: | ---: | ---: |
-| Petani (on) | ×1,10 | **×1,29** | 31% |
-| Pemburu-peramu (no-farming) | ×1,25 | **×1,49** | 37% |
-| La Niña, petani (pembanding) | ×1,10 | ×1,07 | 24% |
+| Petani (on) | ×1,10 | **×1,23** | 27% |
+| Pemburu-peramu (no-farming) | ×1,20 | **×1,42** | 37% |
+| La Niña, petani (pembanding) | ×1,09 | ×1,09 | 23% |
 
-   - Di tahun El Niño, ladang yang mati kekeringan naik dari 0,01 menjadi 0,24 petak per tahun. Panen per orang setahun sesudahnya turun 17% dibanding tahun sesudah tahun netral.
+   - Di tahun El Niño, ladang yang mati kekeringan naik dari 0,02 menjadi 1,07 petak per tahun. Panen per orang setahun sesudahnya turun 18% dibanding tahun sesudah tahun netral.
    - Dampaknya baru terasa setahun kemudian, karena cadangan tubuh bertahan beberapa tahun.
 5. **Satwa tanpa manusia berosilasi dan bertahan, kecuali harimau.**
 
@@ -68,10 +66,10 @@ Angka dalam kurung pada baris era 1 adalah selang kepercayaan 95% (Wilson).
 
    - Pulau ini hanya menampung 2–5 harimau. Populasi sekecil itu pasti punah karena kebetulan, berapa pun aturan teritorinya (sudah dicoba: 1, 2, 3 ekor dewasa per teritori). Harimau hidup sebagai populasi yang punah lalu datang lagi dari seberang laut (5% per tahun).
    - Kerbau dan ayam hutan juga kadang punah lalu datang lagi.
-6. **Perburuan hampir tidak terjadi.**
-   - Total dalam 16 dunia × 900 tahun: 10 rusa, 16 babi, 211 ayam, 1 kerbau, 2 harimau. Daging memberi 0–1% energi.
-   - Keberadaan satwa dengan dan tanpa manusia hampir sama, jadi kepunahan lokal karena perburuan berlebihan **belum** terlihat.
-   - Penyebabnya, hewan lari begitu melihat manusia (dalam 1,5–3 tile, peluang 20% per pengamatan), sedangkan pukulan tangan kosong butuh sekitar 5 kali untuk merobohkan rusa yang larinya lebih cepat dari manusia.
+6. **Perburuan tidak memunahkan satwa.**
+   - Sejak Fase 2b ada jerat, cara mengendap, buruan yang terluka melambat, dan tombak yang lebih mematikan. Dalam 16 dunia × 900 tahun tertangkap 986 rusa, 361 babi, 375 ayam, dan 6 kerbau (sebelumnya 10 rusa dan 16 babi). Sebagian besar lewat jerat.
+   - Daging tetap di bawah 0,5% energi: daging segar membusuk dalam beberapa tahun simulasi (waktu paruh 0,5 tahun), dan satu rusa (6 unit) sudah setara makanan satu orang selama sekitar 12 tahun.
+   - Rusa dan babi tetap ada 100% waktu di 16/16 dunia, jadi kepunahan karena perburuan berlebihan **belum** terlihat. Lihat `docs/reference-ecology.md` §9.
 
 ## Perubahan yang membuat hasil ini (dibanding laporan Fase 2 sebelumnya)
 
@@ -79,19 +77,20 @@ Angka dalam kurung pada baris era 1 adalah selang kepercayaan 95% (Wilson).
 | --- | --- | --- |
 | Keluarga petani menyimpan benih dan membawanya dari lumbung; menanam di tile sebelah juga boleh | Ladang ≈ 1% energi; puncak dengan pertanian 406 < tanpa 444 | Ladang 50%; puncak 175 > 54 |
 | Hanya air tawar yang bisa diminum, sungai dihitung sampai muaranya, haus 8×, ingatan sumber air, sumur butuh pertanian | Pulau menampung ≈ 1.500 pemburu-peramu; populasi menempel di batas teknis | Pemburu-peramu ≈ 30–150 orang, hidup di tepi sungai |
-| Perempuan dewasa butuh 72% energi dan air laki-laki (mulai pubertas) | Rasio kelamin 152 | 73–104 (lihat di bawah) |
-| Air tanah tepi sungai turun tajam saat kemarau panjang | Panen tidak turun di tahun El Niño | Petak layu di tahun El Niño; panen tahun berikutnya −17% |
+| Perempuan dewasa butuh 78% energi dan air laki-laki (mulai pubertas) | Rasio kelamin 152 | 100–114 (72%: 73–104; 84%: 110–120) |
+| Air tanah tepi sungai turun tajam saat kemarau panjang | Panen tidak turun di tahun El Niño | Petak layu di tahun El Niño; panen tahun berikutnya −18% |
 | Perbandingan keahlian antar-tetangga lewat array, bukan map | 30% waktu CPU di `teacherOrStudentNear` | ≈ 1% |
 | Bayi yang digendong tidak lagi diletakkan di atas air; jeda antar-peristiwa ikut disimpan | Dunia yang disimpan lalu dimuat ulang menyimpang dari aslinya | Identik (`TestSameSeedAndSaveRestoreReplayExactly`) |
+| Fase 2b: jerat, mengendap, buruan terluka melambat, tombak 3× lebih mematikan untuk berburu | 10 rusa diburu | 986 rusa diburu, daging tetap < 0,5% |
 
 ## Belum terpenuhi / masalah yang diketahui
 
-- **Perburuan terlalu jarang** (lihat butir 6). Perlu teknik berburu yang lebih realistis (mengendap, tombak sekali tusuk, berburu berkelompok) sebelum kepunahan karena perburuan bisa diuji.
+- **Perburuan tidak memunahkan satwa** (lihat butir 6). Daging membusuk cepat dan sangat berharga dibanding kebutuhan karena waktu dimampatkan, sehingga perburuan tidak pernah menjadi sumber pangan utama. Untuk menguji kepunahan karena perburuan perlu daging per hewan yang jauh lebih kecil, atau pengawetan yang dipakai luas.
 - **Kematian dewasa hampir seluruhnya karena lapar** dengan laju sekitar 5% per tahun di semua umur. Karena itu modus usia kematian dewasa 18 tahun (acuan 68–78), dan e15 16–23 tahun (acuan 28–43). Di masyarakat nyata, populasi lebih banyak diatur lewat kesuburan dan penyakit → **Fase 3**.
 - **Kematian bayi 0** dan peluang kembar 20% (nyata 1–2%) membuat TFR petani terlalu tinggi → Fase 3.
 - **Haus masih sedikit lebih lambat dari lapar** (sekitar 4 lawan 3 tahun). Haus yang lebih cepat menggagalkan pendiri sebelum mereka mengenal jalan ke sungai.
-- **Rasio kelamin pemburu-peramu 73** (petani 93): kini laki-laki yang lebih sering mati. Angka 72% dari Pontzer dkk. (2012) sebagian berasal dari laki-laki Hadza yang berjalan dua kali lebih jauh, padahal di simulasi kedua jenis kelamin bergerak sama banyak. Rasio massa tubuh (Hadza: 43 lawan 51 kg ≈ 0,84) kemungkinan lebih tepat.
-- **Performa:** median 0,59 ms/tick (≈ 24% satu core pada 20×) dan tertinggi 2,29 ms/tick, masih di bawah anggaran 2,5 ms/tick. Tanpa iklim, dunia berpenduduk 1.450 butuh 12 ms/tick. Hambatan berikutnya: otak (`think`, 17%) dan pemrosesan tetangga dalam `sense` (≈ 30%).
+- **Rasio kelamin peka terhadap faktor kebutuhan perempuan:** 72% → 73–104, 78% → 100–114, 84% → 110–120. Nilai 78% dipakai, di antara rasio energi (71%) dan massa tubuh (84%) suku Hadza.
+- **Performa:** median 0,33 ms/tick (≈ 13% satu core pada 20×), tapi dunia petani berpenduduk sekitar 1.000 butuh 6,5 ms/tick, di atas anggaran 2,5 ms/tick. Hambatan berikutnya: otak (`think`, 17%) dan pemrosesan tetangga dalam `sense` (≈ 30%).
 - **Teknologi melambat:** Zaman Logam hanya tercapai di 2/16 dunia (Fase 1: 7/16), karena populasi kini jauh lebih kecil. Ini sejalan dengan teori bahwa populasi kecil sulit mempertahankan teknologi (Henrich 2004).
 
 ## Referensi tambahan

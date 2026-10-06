@@ -1,6 +1,6 @@
 # Laporan soak — Fase 2 — tanpa manusia
 
-- Dibuat: 2026-10-06 10:28:03
+- Dibuat: 2026-10-06 11:53:08
 - Peta: 128×128, seed peta 1337 · seed dunia: 1, 2, 3, 4, 5, 6, 7, 8
 - Durasi: 240 menit simulasi per dunia (≈ 1800 tahun; 1 tahun = 8 detik simulasi)
 - Aturan dimatikan: humans
@@ -10,14 +10,14 @@
 
 | Seed | Era 1 bertahan | Era | Populasi | Gen. maks | Zaman | Unsur | Rumah | e0 | l15 | e15 | TFR | Jarak lahir | Ibu pertama | Modus mati dewasa | Gini | Pembunuhan /100rb | ms/tick |
 | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| 1 | 240 m | 0 | 0 | 0 | 0 | 0 | 0 | – | – | – | – | – | – | – | – | – | 0,15 |
-| 2 | 240 m | 0 | 0 | 0 | 0 | 0 | 0 | – | – | – | – | – | – | – | – | – | 0,17 |
-| 3 | 240 m | 0 | 0 | 0 | 0 | 0 | 0 | – | – | – | – | – | – | – | – | – | 0,17 |
-| 4 | 240 m | 0 | 0 | 0 | 0 | 0 | 0 | – | – | – | – | – | – | – | – | – | 0,17 |
-| 5 | 240 m | 0 | 0 | 0 | 0 | 0 | 0 | – | – | – | – | – | – | – | – | – | 0,16 |
-| 6 | 240 m | 0 | 0 | 0 | 0 | 0 | 0 | – | – | – | – | – | – | – | – | – | 0,14 |
+| 1 | 240 m | 0 | 0 | 0 | 0 | 0 | 0 | – | – | – | – | – | – | – | – | – | 0,16 |
+| 2 | 240 m | 0 | 0 | 0 | 0 | 0 | 0 | – | – | – | – | – | – | – | – | – | 0,14 |
+| 3 | 240 m | 0 | 0 | 0 | 0 | 0 | 0 | – | – | – | – | – | – | – | – | – | 0,16 |
+| 4 | 240 m | 0 | 0 | 0 | 0 | 0 | 0 | – | – | – | – | – | – | – | – | – | 0,16 |
+| 5 | 240 m | 0 | 0 | 0 | 0 | 0 | 0 | – | – | – | – | – | – | – | – | – | 0,17 |
+| 6 | 240 m | 0 | 0 | 0 | 0 | 0 | 0 | – | – | – | – | – | – | – | – | – | 0,17 |
 | 7 | 240 m | 0 | 0 | 0 | 0 | 0 | 0 | – | – | – | – | – | – | – | – | – | 0,14 |
-| 8 | 240 m | 0 | 0 | 0 | 0 | 0 | 0 | – | – | – | – | – | – | – | – | – | 0,15 |
+| 8 | 240 m | 0 | 0 | 0 | 0 | 0 | 0 | – | – | – | – | – | – | – | – | – | 0,16 |
 | **Median** | 240 m | | 0 | 0 | 0 | 0 | 0 | – | – | – | – | – | – | – | – | – | 0,16 |
 
 Era 1 (keturunan Adam & Hawa pertama) bertahan sampai akhir di **0 dari 8** dunia (selang kepercayaan 95%: 0–32%). Hasil per dunia sangat dipengaruhi kebetulan, jadi bandingkan konfigurasi dengan banyak seed.
