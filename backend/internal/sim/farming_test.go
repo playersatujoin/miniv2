@@ -385,3 +385,35 @@ func TestOnlyFreshWaterQuenchesThirstAndPeopleRememberIt(t *testing.T) {
 		t.Fatal("can't drink by the river")
 	}
 }
+
+func TestFamiliesSetSnaresAndCollectTheCatch(t *testing.T) {
+	s, x, y := calmWorld(t)
+	c := person(s, Male, "Pemburu", x, y)
+	home := s.addStructure(s.cat.structure["gubuk"], x, y, c)
+	s.moveIn(c, home)
+	k := s.cat.structure["jerat"]
+	if !s.amenityWanted(c, home, k) {
+		t.Fatal("a family without a snare should want one")
+	}
+	plan := s.placeSnare(home, k)
+	if plan == nil || math.Hypot(float64(plan.job.X-x), float64(plan.job.Y-y)) > snareSite {
+		t.Fatalf("snare placed badly: %+v", plan)
+	}
+	sn := s.addStructure(k, plan.job.X, plan.job.Y, c)
+	tile, _ := s.terrain.index(sn.X, sn.Y)
+	if s.eco.Management(tile)&ecology.SnareSet == 0 {
+		t.Fatal("a new snare should be set")
+	}
+	if s.amenityWanted(c, home, k) {
+		t.Fatal("one snare per house is enough")
+	}
+	s.Snared(tile, "rusa", 6)
+	s.applyFarms()
+	if sn.Storage["daging"] != 6 || s.eco.Management(tile)&ecology.SnareSet != 0 {
+		t.Fatalf("catch not held, or snare not sprung: %v", sn.Storage)
+	}
+	s.keepHouse(c)
+	if s.holding(c, "daging") != 6 || len(sn.Storage) != 0 || s.eco.Management(tile)&ecology.SnareSet == 0 {
+		t.Fatalf("catch not collected or snare not reset: holding %d, snare %v", s.holding(c, "daging"), sn.Storage)
+	}
+}

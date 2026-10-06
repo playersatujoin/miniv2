@@ -205,6 +205,9 @@ type Creature struct {
 	Hurt       float64    `json:"hurt,omitempty"`        // seconds the "diserang" sense stays lit
 	Offender   *Ref       `json:"offender,omitempty"`    // who last attacked or robbed them
 	Mauled     string     `json:"mauled,omitempty"`      // the animal species that last hurt them
+	// Pace is how fast it moved last tick relative to its top speed; animals
+	// notice movement.
+	Pace float64 `json:"pace,omitempty"`
 	// Where it last drank: people remember the way back to the river.
 	WaterX float64   `json:"waterX,omitempty"`
 	WaterY float64   `json:"waterY,omitempty"`

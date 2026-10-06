@@ -15,6 +15,7 @@ const (
 	huntRange       = 1.3
 	spearRange      = 2.2 // a thrown spear reaches further
 	huntDamage      = 0.35
+	spearHunt       = 3   // a weapon counts for more against game: a spear thrust can drop a deer
 	fightBack       = 0.5 // chance a fierce animal turns on its hunter
 	livestockHungry = 0.5 // livestock this thin is "lapar"
 	feedRange       = 1.5
@@ -79,7 +80,7 @@ func (s *Sim) hunt(c *Creature) bool {
 	c.Energy -= attackCost
 	s.flash(c, fxHunt)
 	c.action = ActHunt
-	if s.eco.Strike(target, huntDamage*c.Genome.Traits.Size*(1+s.weaponBonus(c))) {
+	if s.eco.Strike(target, huntDamage*c.Genome.Traits.Size*(1+spearHunt*s.weaponBonus(c))) {
 		c.Deeds.Hunted++
 		meat := sp.Meat
 		room := invCapacity - c.Inventory.count()
@@ -179,6 +180,31 @@ func (s *Sim) Crowd(x, y, r float64) int {
 		}
 	})
 	return n
+}
+
+// Pace is how fast person id moved last, relative to their top speed.
+func (s *Sim) Pace(id int64) float64 {
+	if c := s.byID[id]; c != nil {
+		return c.Pace
+	}
+	return 1
+}
+
+// Snared puts the catch of the snare on tile into it, for its family to collect.
+func (s *Sim) Snared(tile int, species string, meat int) {
+	st := s.structAt[tile]
+	if st == nil || !st.kind.Snare {
+		return
+	}
+	st.Storage.add("daging", meat)
+	if s.time()-s.lastEcoEvt["snare"] >= huntEventGap {
+		s.lastEcoEvt["snare"] = s.time()
+		name := species
+		if sp, ok := speciesByID(species); ok {
+			name = lowerName(sp.Name)
+		}
+		s.event("hunt", fmt.Sprintf("Jerat milik %s menangkap seekor %s", st.OwnerName, name), st.Owner)
+	}
 }
 
 // Maul hurts a person; if it kills them, the death is the animal's doing.

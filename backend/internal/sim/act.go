@@ -19,7 +19,7 @@ const (
 	nurseCost   = 1.2  // a mother spends a little more than the baby gets
 	nurseFloor  = 0.25 // a starving mother's milk dries up
 	childBody   = 0.35 // a newborn's needs relative to an adult
-	femaleBody  = 0.72 // a grown woman's needs relative to a man's
+	femaleBody  = 0.78 // a grown woman's needs relative to a man's
 	pubertyAge  = 10 * SecondsPerYear
 	idleRetry   = 1.0 // seconds before looking for work again after finding none
 	fxSeconds   = 1.0
@@ -91,6 +91,7 @@ func (s *Sim) act(c *Creature) {
 	if !c.resting {
 		speed = out[outMove] * tr.MaxSpeed * moveFactor
 	}
+	c.Pace = speed / tr.MaxSpeed
 	c.Bumped = false
 	if speed > 0 {
 		c.Bumped = !s.move(c, speed*dt)
@@ -139,11 +140,13 @@ func (s *Sim) metabolize(c *Creature, speed float64) {
 
 // bodyScale is how much food and water a body needs relative to a grown
 // man: a newborn about a third, growing to the full amount at 15. Women,
-// being smaller, need less: Hadza women spend about 70 % of the energy men
-// do (Pontzer et al. 2012), and drink less in proportion. Girls and boys
-// need much the same until the sexes grow apart at puberty, 10 to 15.
-// Without this, pregnancy and nursing on top of a man's budget starved
-// women twice as often as men.
+// being smaller, need less. Among the Hadza they spend 71 % of the energy
+// men do, but partly because the men walk twice as far a day, while women
+// weigh 84 % of what men do (Pontzer et al. 2012); here both sexes move
+// alike, so the value lies between. Girls and boys need much the same
+// until the sexes grow apart at puberty, 10 to 15. With a man's budget
+// women starved twice as often as men; at 71 % men starved more, at 84 %
+// women did again.
 func (s *Sim) bodyScale(c *Creature) float64 {
 	age := s.age(c)
 	scale := childBody + (1-childBody)*math.Min(1, age/adultAge)
@@ -174,6 +177,7 @@ func (s *Sim) beCarried(c, m *Creature) {
 	}
 	c.Heading = m.Heading
 	c.resting, c.wantsMate = true, false
+	c.Pace = 0
 	c.action = ActRest
 	c.Bumped = false
 	s.metabolize(c, 0)

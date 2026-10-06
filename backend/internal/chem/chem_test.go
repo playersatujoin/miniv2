@@ -157,7 +157,7 @@ func TestDataIntegrity(t *testing.T) {
 				t.Errorf("%s costs %d %s", s.ID, n, id)
 			}
 		}
-		if s.House != (s.Level > 0) || (s.House || s.Granary) != (s.Storage > 0) {
+		if s.House != (s.Level > 0) || (s.House || s.Granary || s.Snare) != (s.Storage > 0) {
 			t.Errorf("%s: house=%v level=%d storage=%d", s.ID, s.House, s.Level, s.Storage)
 		}
 		if s.Upgrades != "" {

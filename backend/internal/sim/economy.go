@@ -445,6 +445,13 @@ func (s *Sim) keepHouse(c *Creature) {
 	if seed == "" && s.sows(c) {
 		s.takeSeed(c, granary, h)
 	}
+	// Empty the family snare and set it again.
+	if sn := s.snareOf(h); sn != nil && len(sn.Storage) > 0 && s.adult(c) {
+		for _, id := range sn.Storage.ids() {
+			s.receive(c, id, sn.Storage.take(id, sn.Storage[id]))
+		}
+		s.applyFarms()
+	}
 	s.cullLivestock(c, h)
 }
 
@@ -1082,8 +1089,14 @@ func (s *Sim) chooseBuild(c *Creature) *buildPlan {
 	if home != nil {
 		for _, k := range s.cat.structures {
 			if s.amenityWanted(c, home, k) && s.canBuildWith(c, k.Cost) {
-				if k.Irrigation {
+				switch {
+				case k.Irrigation:
 					if p := s.placeIrrigation(home, k); p != nil {
+						return p
+					}
+					continue
+				case k.Snare:
+					if p := s.placeSnare(home, k); p != nil {
 						return p
 					}
 					continue
@@ -1169,7 +1182,7 @@ func (s *Sim) addStructure(k chem.StructureKind, x, y int, owner *Creature) *Str
 	}
 	s.nextStructID++
 	s.indexStructure(st)
-	if k.Farm || k.Irrigation || k.Pen {
+	if k.Farm || k.Irrigation || k.Pen || k.Snare {
 		s.applyFarms()
 	}
 	return st

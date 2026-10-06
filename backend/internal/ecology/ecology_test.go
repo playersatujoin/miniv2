@@ -283,3 +283,60 @@ func TestWildCropsGrowWhereTheyBelong(t *testing.T) {
 		}
 	}
 }
+
+// snareHumans is nobody nearby, recording what snares catch.
+type snareHumans struct{ caught []string }
+
+func (h *snareHumans) Nearest(x, y, r float64) (int64, float64, float64, bool) { return 0, 0, 0, false }
+func (h *snareHumans) Crowd(x, y, r float64) int                               { return 0 }
+func (h *snareHumans) Maul(id int64, damage float64, species string)           {}
+func (h *snareHumans) Home(house int64) (float64, float64, bool, bool)         { return 0, 0, false, false }
+func (h *snareHumans) Settled(x, y float64) (int64, bool)                      { return 0, false }
+func (h *snareHumans) Tamed(house int64, species string)                       {}
+func (h *snareHumans) Pace(id int64) float64                                   { return 1 }
+func (h *snareHumans) Snared(tile int, species string, meat int) {
+	h.caught = append(h.caught, species)
+}
+
+func TestSnaresCatchDeerButNotBuffalo(t *testing.T) {
+	land := starterLand(48)
+	e := New(land, rand.New(rand.NewPCG(4, 4)), Options{NoClimate: true}, 0)
+	var deerTile, buffaloTile int
+	found := 0
+	for _, i32 := range e.walkable {
+		if i := int(i32); found == 0 {
+			deerTile, found = i, 1
+		} else if i-deerTile > 10 {
+			buffaloTile = i
+			break
+		}
+	}
+	bits := make([]uint8, land.W*land.H)
+	bits[deerTile], bits[buffaloTile] = SnareSet, SnareSet
+	e.SetManagement(bits)
+	at := func(i int) (float64, float64) { return float64(i%land.W) + 0.5, float64(i/land.W) + 0.5 }
+	dx, dy := at(deerTile)
+	bx, by := at(buffaloTile)
+	deer := e.AddAnimal("rusa", dx, dy, 0)
+	buffalo := e.AddAnimal("kerbau", bx, by, 0)
+	h := &snareHumans{}
+	tm := 0.0
+	for k := int64(1); k <= 200 && !deer.Dead(); k++ {
+		deer.X, deer.Y = dx, dy // it keeps to the trail
+		buffalo.X, buffalo.Y = bx, by
+		tm += tick
+		e.Tick(k, tm, tick, h)
+	}
+	if !deer.Dead() || len(h.caught) != 1 || h.caught[0] != "rusa" {
+		t.Fatalf("deer dead %v, caught %v", deer.Dead(), h.caught)
+	}
+	if e.Management(deerTile)&SnareSet != 0 {
+		t.Fatal("a snare that caught something must be sprung")
+	}
+	if buffalo.Dead() || e.Management(buffaloTile)&SnareSet == 0 {
+		t.Fatal("a buffalo breaks free of a snare")
+	}
+	if e.HuntedTotal()[0] != 1 {
+		t.Fatalf("a snared deer counts as hunted: %v", e.HuntedTotal())
+	}
+}

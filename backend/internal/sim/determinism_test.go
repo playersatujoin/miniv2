@@ -26,23 +26,33 @@ func TestSameSeedAndSaveRestoreReplayExactly(t *testing.T) {
 		m.ID = "0000000000000000"
 		return m
 	}
-	a, twin := New(island(), 5), New(island(), 5)
-	a.Advance(before * TicksPerSecond)
-	twin.Advance(before * TicksPerSecond)
-
+	// The first world that farms by the time it is saved, so the save covers
+	// fields, seed and water memory whatever the rules make of each seed.
+	var a *Sim
+	var seed uint64
 	farmers, remember := 0, 0
-	for _, c := range a.creatures {
-		if s := a.seedInHand(c); s != "" {
-			farmers++
+	for seed = 1; seed <= 12; seed++ {
+		a = New(island(), seed)
+		a.Advance(before * TicksPerSecond)
+		farmers, remember = 0, 0
+		for _, c := range a.creatures {
+			if a.seedInHand(c) != "" {
+				farmers++
+			}
+			if c.WaterX != 0 || c.WaterY != 0 {
+				remember++
+			}
 		}
-		if c.WaterX != 0 || c.WaterY != 0 {
-			remember++
+		if len(a.eco.Plots()) > 0 && remember > 0 {
+			break
 		}
 	}
 	if len(a.eco.Plots()) == 0 || remember == 0 {
-		t.Fatalf("the test should cover fields and water memory: %d plots, %d remember water", len(a.eco.Plots()), remember)
+		t.Fatal("no world among seeds 1–12 farms by the time it is saved")
 	}
-	t.Logf("saving at %d s: %d people, %d plots, %d carrying seed", before, len(a.creatures), len(a.eco.Plots()), farmers)
+	twin := New(island(), seed)
+	twin.Advance(before * TicksPerSecond)
+	t.Logf("seed %d saved at %d s: %d people, %d plots, %d carrying seed", seed, before, len(a.creatures), len(a.eco.Plots()), farmers)
 
 	data, err := a.MarshalState()
 	if err != nil {

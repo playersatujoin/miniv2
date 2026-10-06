@@ -20,6 +20,7 @@ const (
 	irrigationWater = 3   // a channel must be this close to a river or lake …
 	irrigationReach = 2   // … and waters fields this far around it
 	irrigationSite  = 6   // how far from the house a channel may be dug
+	snareSite       = 4   // how far from the house a family sets its snare
 	manureReach     = 2
 	seedKeep        = 4    // crop units a farming household keeps back in store for sowing …
 	seedCarry       = 2    // … and in hand, taken along to plant
@@ -301,13 +302,16 @@ func (s *Sim) farmKind() (chem.StructureKind, bool) {
 }
 
 // amenityWanted reports whether c's family, living in h, should build k next
-// to the house: a field once they farm, a well, an irrigation channel for a
-// field by a river, a granary for a farming family, a pen for their animals.
+// to the house: a snare, a field once they farm, a well, an irrigation
+// channel for a field by a river, a granary for a farming family, a pen for
+// their animals.
 func (s *Sim) amenityWanted(c *Creature, h *Structure, k chem.StructureKind) bool {
-	if !(k.Farm || k.Well || k.Irrigation || k.Granary || k.Pen) || !s.canPractise(c, k.Tech) || s.amenityNear(h, k) {
+	if !(k.Farm || k.Well || k.Irrigation || k.Granary || k.Pen || k.Snare) || !s.canPractise(c, k.Tech) || s.amenityNear(h, k) {
 		return false
 	}
 	switch {
+	case k.Snare:
+		return true
 	case k.Farm, k.Well:
 		return k.Farm && !s.opts.NoFarming || k.Well
 	case k.Irrigation:
@@ -340,6 +344,34 @@ func (s *Sim) placeIrrigation(h *Structure, k chem.StructureKind) *buildPlan {
 		}
 	}
 	return plan
+}
+
+// placeSnare finds a free tile near the house where game comes to feed: the
+// most wild food within snareSite tiles, the nearest of equals.
+func (s *Sim) placeSnare(h *Structure, k chem.StructureKind) *buildPlan {
+	best, bestD := -1.0, math.Inf(1)
+	var plan *buildPlan
+	for dy := -snareSite; dy <= snareSite; dy++ {
+		for dx := -snareSite; dx <= snareSite; dx++ {
+			x, y := h.X+dx, h.Y+dy
+			i, ok := s.terrain.index(x, y)
+			if !ok || !s.tileFree(x, y) {
+				continue
+			}
+			v, d := float64(s.eco.Forage(i)), math.Hypot(float64(dx), float64(dy))
+			if d > snareSite || v < best || v == best && d >= bestD {
+				continue
+			}
+			best, bestD = v, d
+			plan = &buildPlan{job: &Job{Kind: "build", Structure: k.ID, X: x, Y: y, Remaining: buildSeconds(k)}}
+		}
+	}
+	return plan
+}
+
+// snareOf is the family snare near house h, if any.
+func (s *Sim) snareOf(h *Structure) *Structure {
+	return s.familyAmenity(h, func(k chem.StructureKind) bool { return k.Snare })
 }
 
 // granaryOf is the family granary near house h, if any.
@@ -379,8 +411,8 @@ func (s *Sim) familyAmenity(h *Structure, is func(chem.StructureKind) bool) *Str
 }
 
 // applyFarms tells the ecology which tiles are fields (around a ladang),
-// irrigated (around a channel by fresh water) or manured (around a pen with
-// animals in it).
+// irrigated (around a channel by fresh water), manured (around a pen with
+// animals in it) or hold a set snare.
 func (s *Sim) applyFarms() {
 	t := s.terrain
 	bits := make([]uint8, len(t.blocked))
@@ -400,6 +432,10 @@ func (s *Sim) applyFarms() {
 		case st.kind.Irrigation:
 			if s.eco.FreshWithin(st.X, st.Y, irrigationWater) {
 				mark(st.X, st.Y, irrigationReach, ecology.Irrigated)
+			}
+		case st.kind.Snare:
+			if len(st.Storage) == 0 {
+				mark(st.X, st.Y, 0, ecology.SnareSet) // set; a sprung one waits to be emptied
 			}
 		case st.house() && st.Owner != 0:
 			if pen := s.penOf(st); pen != nil && len(s.eco.Livestock(st.ID)) > 0 {

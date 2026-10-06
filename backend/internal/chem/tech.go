@@ -37,6 +37,10 @@ var structures = []StructureKind{
 	{ID: "saluran_irigasi", Name: "Saluran Irigasi", Cost: map[ItemID]int{"batu": 4, "kayu": 2, "tali": 1}, Tech: "pertanian", Irrigation: true},
 	{ID: "lumbung", Name: "Lumbung", Cost: map[ItemID]int{"kayu": 10, "serat": 4, "tali": 2}, Tech: "pertanian", Granary: true, Storage: 120},
 	{ID: "kandang", Name: "Kandang", Cost: map[ItemID]int{"kayu": 8, "tali": 2}, Tech: "peternakan", Pen: true},
+	// A noose of plant cord on a bent stick, set on a game trail: foragers
+	// across Southeast Asia snare pigs, deer and junglefowl this way, and
+	// snaring needs no special knowledge.
+	{ID: "jerat", Name: "Jerat", Cost: map[ItemID]int{"serat": 2, "kayu": 1}, Snare: true, Storage: 6},
 	// Lined wells came with settled farming villages in the Neolithic;
 	// foragers moved to the water instead.
 	{ID: "sumur", Name: "Sumur", Cost: map[ItemID]int{"batu": 8, "tali": 2}, Tech: "pertanian", Well: true},

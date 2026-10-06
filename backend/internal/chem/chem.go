@@ -99,6 +99,7 @@ type StructureKind struct {
 	Irrigation bool `json:"irrigation,omitempty"` // waters the fields around it from a nearby river or lake
 	Granary    bool `json:"granary,omitempty"`    // a family's food store where food keeps much longer
 	Pen        bool `json:"pen,omitempty"`        // keeps a family's livestock safe and manures the fields nearby
+	Snare      bool `json:"snare,omitempty"`      // catches game that steps into it; holds the catch until collected
 }
 
 type Recipe struct {

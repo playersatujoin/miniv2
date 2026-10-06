@@ -127,7 +127,10 @@ const (
 	pounceRange    = 1.8
 	noticeRange    = 2.0  // prey may notice a stalking tiger this close …
 	noticeChance   = 0.06 // … with this chance per look
-	spotChance     = 0.2  // chance per look that prey notices a person within its flight distance
+	spotChance     = 0.1  // chance per look that prey notices a person walking openly within its flight distance …
+	stillNotice    = 0.2  // … and the share of that for one standing still
+	snareCatch     = 1.5  // per second an animal stands in a set snare
+	snareMaxSize   = 1.0  // bigger animals break free
 	pounceRest     = 0.5
 	satedSeconds   = 0.25 * SecondsPerYear
 	killEnergy     = 0.6
@@ -466,9 +469,9 @@ func (e *Ecology) live(a *Animal, t, dt float64, h Humans) {
 		if tx, ty, ok := e.threat(a, h); ok {
 			a.Fear = fleeSeconds
 			heading = math.Atan2(a.Y-ty, a.X-tx) + (e.rng.Float64()-0.5)*0.6
-			speed = sp.Run
+			speed = sp.Run * woundedPace(a)
 		} else if a.Fear > 0 {
-			speed = sp.Run
+			speed = sp.Run * woundedPace(a)
 		} else {
 			speed, heading = e.browse(a, dt)
 		}
@@ -477,10 +480,37 @@ func (e *Ecology) live(a *Animal, t, dt float64, h Humans) {
 		speed, heading = e.leash(a, speed, heading, h)
 	}
 	e.move(a, heading, speed*dt)
+	if e.snared(a, dt, h) {
+		return
+	}
 	if a.Female && a.Gest <= 0 && a.Rest <= 0 && a.Energy > breedEnergy && t-a.Born >= sp.Adult*SecondsPerYear {
 		e.tryBreed(a, t)
 	}
 }
+
+// snared catches a wild animal that steps into a set snare: deer, pigs and
+// junglefowl (a buffalo breaks free, a tiger isn't caught). The snare is
+// sprung until the people who set it collect the catch.
+func (e *Ecology) snared(a *Animal, dt float64, h Humans) bool {
+	sp := a.Kind()
+	if h == nil || a.Owner != 0 || a.Tame >= tameNoFear || sp.Diet == Predator || sp.Size > snareMaxSize {
+		return false
+	}
+	i, ok := e.land.indexAt(a.X, a.Y)
+	if !ok || e.manage[i]&SnareSet == 0 || e.rng.Float64() >= snareCatch*dt {
+		return false
+	}
+	e.manage[i] &^= SnareSet
+	a.Health = 0
+	e.stats.cur.Hunted[a.Species]++
+	e.stats.Hunted[a.Species]++
+	h.Snared(i, sp.ID, sp.Meat)
+	return true
+}
+
+// woundedPace slows a hurt animal's flight: a deer that has taken a spear
+// can't outrun its hunters for long, so they follow it up.
+func woundedPace(a *Animal) float64 { return math.Max(0.25, a.Health) }
 
 // followMother keeps a cub near the nearest adult female of its kind.
 func (e *Ecology) followMother(a *Animal) (float64, float64) {
@@ -512,10 +542,13 @@ func (e *Ecology) threat(a *Animal, h Humans) (float64, float64, bool) {
 	if a.Owner != 0 || a.Tame >= tameNoFear {
 		flee = 0
 	}
-	// A person creeping up is noticed only now and then: stalking works.
-	if flee > 0 && h != nil && e.rng.Float64() < spotChance {
-		if _, hx, hy, ok := h.Nearest(a.X, a.Y, flee); ok {
-			return hx, hy, true
+	// A person creeping up is noticed only now and then, the more slowly
+	// they move the less: stalking works.
+	if flee > 0 && h != nil {
+		if r := e.rng.Float64(); r < spotChance {
+			if id, hx, hy, ok := h.Nearest(a.X, a.Y, flee); ok && r < spotChance*(stillNotice+(1-stillNotice)*h.Pace(id)) {
+				return hx, hy, true
+			}
 		}
 	}
 	if sp.Prey {

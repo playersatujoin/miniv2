@@ -893,6 +893,7 @@ const STRUCTURE_NAMES: Record<string, string> = {
   lumbung: 'Lumbung',
   kandang: 'Kandang',
   sumur: 'Sumur',
+  jerat: 'Jerat',
   tungku: 'Tungku',
   laboratorium: 'Laboratorium',
   pembangkit_listrik: 'Pembangkit Listrik',
@@ -1050,6 +1051,28 @@ const paintWell: Paint = (ctx, hue) => {
   ctx.fillStyle = '#5f5b55'
   for (let x = CX - 9; x < CX + 12; x += 6) ctx.fillRect(x, BY - 9, 1, 6)
   ctx.fillRect(CX - 12, BY - 6, 24, 1)
+}
+
+/** A snare: a sapling bent over a game trail with a cord noose. */
+const paintSnare: Paint = (ctx, hue) => {
+  ellipse(ctx, CX, BY - 3, 10, 3, SHADOW)
+  ctx.strokeStyle = '#6b4626'
+  ctx.lineWidth = 2
+  ctx.beginPath()
+  ctx.moveTo(CX - 8, BY - 2)
+  ctx.quadraticCurveTo(CX - 8, BY - 22, CX + 6, BY - 18)
+  ctx.stroke()
+  ctx.strokeStyle = `hsl(${hue} 30% 70%)`
+  ctx.lineWidth = 1
+  ctx.beginPath()
+  ctx.moveTo(CX + 6, BY - 18)
+  ctx.lineTo(CX + 6, BY - 9)
+  ctx.stroke()
+  ctx.beginPath()
+  ctx.ellipse(CX + 6, BY - 6, 4, 2.5, 0, 0, Math.PI * 2)
+  ctx.stroke()
+  ctx.fillStyle = '#5a3a1e'
+  ctx.fillRect(CX + 9, BY - 6, 2, 5)
 }
 
 const paintFurnace: Paint = (ctx, hue) => {
@@ -1405,6 +1428,7 @@ const PAINTERS: Record<string, Paint> = {
   rumah_kayu: paintWoodHouse,
   rumah_bata: paintBrickHouse,
   sumur: paintWell,
+  jerat: paintSnare,
   tungku: paintFurnace,
   laboratorium: paintLab,
   pembangkit_listrik: paintPowerPlant,

@@ -95,6 +95,12 @@ type Humans interface {
 	Settled(x, y float64) (house int64, ok bool)
 	// Tamed tells that an animal of species now belongs to household house.
 	Tamed(house int64, species string)
+	// Pace is how fast person id moved last, 0 (still) to 1 (flat out).
+	// Animals notice movement: a hunter creeping up is seen late.
+	Pace(id int64) float64
+	// Snared tells that the snare on tile caught an animal of species,
+	// worth meat units; the snare stays sprung until SetSnares re-arms it.
+	Snared(tile int, species string, meat int)
 }
 
 // Event is something worth telling the observer.
@@ -148,6 +154,7 @@ const (
 	Farmland  = 1 // inside a ladang: cleared and weeded
 	Irrigated = 2 // watered by an irrigation channel
 	Manured   = 4 // near a pen with livestock
+	SnareSet  = 8 // a snare waits here
 )
 
 // New brings a land to life at simulated time t.
